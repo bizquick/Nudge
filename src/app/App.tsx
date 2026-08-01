@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { ReminderList } from './components/ReminderList';
 import { QuickSendModal } from './components/QuickSendModal';
 import { AuthScreen } from './components/AuthScreen';
-import { Send, Archive, LogOut } from 'lucide-react';
+import { Send, Archive, ArchiveX, Trash2, LogOut } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { ImageWithFallback } from './components/figma/ImageWithFallback';
 import nudgeLogo from '../imports/image-3.png';
@@ -34,6 +34,8 @@ export interface Reminder {
   checkedOut: boolean;
   archived: boolean;
   favorited: boolean;
+  curated: boolean;
+  curatedOrder: number | null;
   reactions: Reaction[];
   createdAt: Date;
 }
@@ -50,6 +52,8 @@ function rowToReminder(row: any, reactions: Reaction[] = []): Reminder {
     checkedOut: row.checked_out,
     archived: row.archived,
     favorited: row.favorited,
+    curated: row.curated ?? false,
+    curatedOrder: row.curated_order ?? null,
     reactions,
     createdAt: new Date(row.created_at)
   };
@@ -88,7 +92,17 @@ export default function App() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [quickSendTo, setQuickSendTo] = useState<string | null>(null);
   const [showNewReminderModal, setShowNewReminderModal] = useState(false);
-  const [allMessagesFilter, setAllMessagesFilter] = useState<'unread' | 'favorited' | 'archived'>('unread');
+  const [allMessagesFilter, setAllMessagesFilter] = useState<'unread' | 'curated' | 'favorited' | 'archived'>('unread');
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const selectFilter = (filter: 'unread' | 'curated' | 'favorited' | 'archived') => {
+    setAllMessagesFilter(filter);
+    setExpandedId(null);
+  };
+  const selectSender = (sender: string | null) => {
+    setSelectedSender(sender);
+    setExpandedId(null);
+  };
 
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -144,17 +158,20 @@ export default function App() {
   };
 
   const [knownUsers, setKnownUsers] = useState<string[]>([]);
+  const [hiddenContacts, setHiddenContacts] = useState<{ name: string; status: 'archived' | 'deleted' }[]>([]);
+  const [showArchivedContacts, setShowArchivedContacts] = useState(false);
 
   const loadData = useCallback(async () => {
-    const [{ data: reminderRows, error: reminderErr }, { data: reactionRows, error: reactionErr }, { data: messageRows, error: messageErr }, { data: profileRows, error: profileErr }] = await Promise.all([
+    const [{ data: reminderRows, error: reminderErr }, { data: reactionRows, error: reactionErr }, { data: messageRows, error: messageErr }, { data: profileRows, error: profileErr }, { data: contactPrefRows, error: contactPrefErr }] = await Promise.all([
       supabase.from('reminders').select('*').order('created_at', { ascending: false }),
       supabase.from('reminder_reactions').select('*'),
       supabase.from('messages').select('*').order('created_at', { ascending: true }),
-      supabase.from('profiles').select('display_name').order('display_name', { ascending: true })
+      supabase.from('profiles').select('display_name').order('display_name', { ascending: true }),
+      supabase.from('contact_prefs').select('contact_name, status')
     ]);
 
-    if (reminderErr || reactionErr || messageErr || profileErr) {
-      console.error(reminderErr || reactionErr || messageErr || profileErr);
+    if (reminderErr || reactionErr || messageErr || profileErr || contactPrefErr) {
+      console.error(reminderErr || reactionErr || messageErr || profileErr || contactPrefErr);
       setLoadError("Couldn't reach the server. Check your connection and Supabase setup.");
       return;
     }
@@ -163,6 +180,7 @@ export default function App() {
     setReminders((reminderRows || []).map(row => rowToReminder(row, reactionMap[row.id] || [])));
     setMessages((messageRows || []).map(rowToMessage));
     setKnownUsers((profileRows || []).map(p => p.display_name));
+    setHiddenContacts((contactPrefRows || []).map(c => ({ name: c.contact_name, status: c.status as 'archived' | 'deleted' })));
     setLoadError(null);
   }, []);
 
@@ -187,6 +205,7 @@ export default function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'reminder_reactions' }, scheduleRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, scheduleRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, scheduleRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'contact_prefs' }, scheduleRefresh)
       .subscribe();
 
     return () => {
@@ -278,6 +297,66 @@ export default function App() {
     if (error) console.error(error);
   };
 
+  const handleToggleCurated = async (id: string) => {
+    const reminder = reminders.find(r => r.id === id);
+    if (!reminder || !currentUser) return;
+    const nextValue = !reminder.curated;
+
+    let nextOrder: number | null = null;
+    if (nextValue) {
+      const myCuratedOrders = reminders
+        .filter(r => r.curated && (r.sender === currentUser || r.recipient === currentUser))
+        .map(r => r.curatedOrder ?? 0);
+      nextOrder = myCuratedOrders.length > 0 ? Math.max(...myCuratedOrders) + 1 : 0;
+    }
+
+    setReminders(prev => prev.map(r => r.id === id ? { ...r, curated: nextValue, curatedOrder: nextOrder } : r));
+    const { error } = await supabase.from('reminders').update({ curated: nextValue, curated_order: nextOrder }).eq('id', id);
+    if (error) console.error(error);
+  };
+
+  const handleReorderCurated = async (orderedIds: string[]) => {
+    setReminders(prev => {
+      const orderMap = new Map(orderedIds.map((id, index) => [id, index]));
+      return prev.map(r => orderMap.has(r.id) ? { ...r, curatedOrder: orderMap.get(r.id)! } : r);
+    });
+    const updates = orderedIds.map((id, index) =>
+      supabase.from('reminders').update({ curated_order: index }).eq('id', id)
+    );
+    const results = await Promise.all(updates);
+    const failed = results.find(r => r.error);
+    if (failed?.error) console.error(failed.error);
+  };
+
+  const setContactStatus = async (name: string, status: 'archived' | 'deleted') => {
+    if (!currentUser) return;
+    setHiddenContacts(prev => [...prev.filter(h => h.name !== name), { name, status }]);
+    if (selectedSender === name) selectSender(null);
+    const { error } = await supabase
+      .from('contact_prefs')
+      .upsert({ owner_name: currentUser, contact_name: name, status }, { onConflict: 'owner_name,contact_name' });
+    if (error) {
+      console.error(error);
+      toast('Could not update that contact');
+    }
+  };
+
+  const handleArchiveContact = (name: string) => setContactStatus(name, 'archived');
+  const handleDeleteContact = (name: string) => setContactStatus(name, 'deleted');
+
+  const handleRestoreContact = async (name: string) => {
+    if (!currentUser) return;
+    setHiddenContacts(prev => prev.filter(h => h.name !== name));
+    const { error } = await supabase
+      .from('contact_prefs')
+      .delete()
+      .match({ owner_name: currentUser, contact_name: name });
+    if (error) {
+      console.error(error);
+      toast('Could not restore that contact');
+    }
+  };
+
   const handleAddMessage = async (reminderId: string, text: string) => {
     if (!currentUser) return;
     const payload = { reminder_id: reminderId, sender: currentUser, text };
@@ -362,13 +441,16 @@ export default function App() {
   const activeReminders = allUserReminders.filter(r => showArchived ? r.archived : !r.archived);
   const archivedCount = allUserReminders.filter(r => r.archived).length;
 
+  const hiddenContactNames = new Set(hiddenContacts.map(h => h.name));
+  const archivedContactNames = hiddenContacts.filter(h => h.status === 'archived').map(h => h.name).sort();
+
   const uniqueContacts = Array.from(
     new Set(
       activeReminders.map(r =>
         r.sender === currentUser ? r.recipient : r.sender
       )
     )
-  ).sort();
+  ).filter(name => !hiddenContactNames.has(name)).sort();
 
   const allRemindersForUser = reminders.filter(r =>
     r.sender === currentUser || r.recipient === currentUser
@@ -379,7 +461,14 @@ export default function App() {
       return reminders.filter(r => r.sender === currentUser && r.recipient === currentUser && !r.archived);
     }
     if (!selectedSender) {
-      if (allMessagesFilter === 'unread') return allUserReminders.filter(r => !r.checkedOut && !r.archived);
+      if (allMessagesFilter === 'unread') {
+        return allUserReminders.filter(r => (!r.checkedOut || r.id === expandedId) && !r.archived);
+      }
+      if (allMessagesFilter === 'curated') {
+        return allRemindersForUser
+          .filter(r => r.curated && !r.archived)
+          .sort((a, b) => (a.curatedOrder ?? 0) - (b.curatedOrder ?? 0));
+      }
       if (allMessagesFilter === 'favorited') return allRemindersForUser.filter(r => r.favorited && !r.archived);
       if (allMessagesFilter === 'archived') return allRemindersForUser.filter(r => r.archived);
     }
@@ -482,7 +571,7 @@ export default function App() {
               <div className="max-h-[calc(100vh-200px)] sm:max-h-[calc(100vh-300px)] overflow-y-auto">
                 {/* All Messages */}
                 <button
-                  onClick={() => setSelectedSender(null)}
+                  onClick={() => selectSender(null)}
                   className={`w-full px-1.5 sm:px-4 py-3 sm:py-3 flex flex-col sm:flex-row items-center justify-center sm:justify-between hover:bg-gray-50 transition-colors border-b border-gray-100 ${
                     selectedSender === null ? 'bg-indigo-50 border-l-4 border-l-indigo-600' : ''
                   }`}
@@ -503,7 +592,7 @@ export default function App() {
                 {/* My Reminders */}
                 {myOwnReminders.length > 0 && (
                   <button
-                    onClick={() => setSelectedSender('My Reminders')}
+                    onClick={() => selectSender('My Reminders')}
                     className={`w-full px-1.5 sm:px-4 py-3 sm:py-3 flex flex-col sm:flex-row items-center justify-center sm:justify-between hover:bg-gray-50 transition-colors border-b border-gray-100 ${
                       selectedSender === 'My Reminders' ? 'bg-indigo-50 border-l-4 border-l-indigo-600' : ''
                     }`}
@@ -537,7 +626,7 @@ export default function App() {
                   return (
                     <div key={contact} className="relative group">
                       <button
-                        onClick={() => setSelectedSender(contact)}
+                        onClick={() => selectSender(contact)}
                         className={`w-full px-1.5 sm:px-4 py-3 sm:py-3 flex flex-col sm:flex-row items-center justify-center sm:justify-between hover:bg-gray-50 transition-colors border-b border-gray-100 ${
                           selectedSender === contact ? 'bg-indigo-50 border-l-4 border-l-indigo-600' : ''
                         }`}
@@ -558,20 +647,77 @@ export default function App() {
                           </div>
                         </div>
                       </button>
-                      {/* Quick Send Button - Only show on larger screens */}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setQuickSendTo(contact);
-                        }}
-                        className="hidden sm:flex absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-indigo-600 text-white p-2 rounded-lg hover:bg-indigo-700"
-                        title={`Send to ${contact}`}
-                      >
-                        <Send className="w-3 h-3" />
-                      </button>
+                      {/* Hover Actions - Only show on larger screens */}
+                      <div className="hidden sm:flex absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity gap-1">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setQuickSendTo(contact);
+                          }}
+                          className="bg-indigo-600 text-white p-2 rounded-lg hover:bg-indigo-700"
+                          title={`Send to ${contact}`}
+                        >
+                          <Send className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleArchiveContact(contact);
+                          }}
+                          className="bg-gray-600 text-white p-2 rounded-lg hover:bg-gray-700"
+                          title={`Archive ${contact}`}
+                        >
+                          <ArchiveX className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (confirm(`Remove ${contact} from your contact list? Your reminders with them are kept — this just hides them from the sidebar.`)) {
+                              handleDeleteContact(contact);
+                            }
+                          }}
+                          className="bg-red-600 text-white p-2 rounded-lg hover:bg-red-700"
+                          title={`Delete ${contact}`}
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
                     </div>
                   );
                 })}
+
+                {/* Archived Contacts */}
+                {archivedContactNames.length > 0 && (
+                  <div className="border-t border-gray-100">
+                    <button
+                      onClick={() => setShowArchivedContacts(!showArchivedContacts)}
+                      className="w-full px-1.5 sm:px-4 py-2.5 flex items-center justify-center sm:justify-between text-xs text-gray-500 hover:bg-gray-50 transition-colors"
+                    >
+                      <span className="hidden sm:inline">Archived contacts ({archivedContactNames.length})</span>
+                      <span className="sm:hidden">
+                        <ArchiveX className="w-4 h-4" />
+                      </span>
+                      <svg
+                        className={`hidden sm:block w-3.5 h-3.5 transition-transform ${showArchivedContacts ? 'rotate-180' : ''}`}
+                        fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </button>
+                    {showArchivedContacts && archivedContactNames.map(name => (
+                      <div key={name} className="w-full px-1.5 sm:px-4 py-2 flex items-center justify-center sm:justify-between border-t border-gray-100">
+                        <span className="hidden sm:inline text-sm text-gray-600">{name}</span>
+                        <button
+                          onClick={() => handleRestoreContact(name)}
+                          className="text-xs text-indigo-600 hover:text-indigo-700 underline"
+                          title={`Restore ${name}`}
+                        >
+                          Restore
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -580,23 +726,30 @@ export default function App() {
           <div className="flex-1 min-w-0">
             {!selectedSender && (
               <div className="mb-4 flex gap-2">
-                {(['unread', 'favorited', 'archived'] as const).map(filter => {
+                {(['unread', 'curated', 'favorited', 'archived'] as const).map(filter => {
                   const unreadCount = allUserReminders.filter(r => !r.checkedOut && !r.archived).length;
+                  const curatedCount = allRemindersForUser.filter(r => r.curated && !r.archived).length;
                   const isActive = allMessagesFilter === filter;
+                  const labels = { unread: 'Unread', curated: 'Curated', favorited: 'Favorites', archived: 'Archive' };
                   return (
                     <button
                       key={filter}
-                      onClick={() => setAllMessagesFilter(filter)}
+                      onClick={() => selectFilter(filter)}
                       className={`relative px-4 py-2 rounded-lg text-sm transition-colors ${
                         isActive
                           ? 'bg-indigo-600 text-white'
                           : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
                       }`}
                     >
-                      {filter === 'unread' ? 'Unread' : filter === 'favorited' ? 'Favorites' : 'Archive'}
+                      {labels[filter]}
                       {filter === 'unread' && unreadCount > 0 && (
                         <span className={`absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] rounded-full flex items-center justify-center px-1 border-2 text-[10px] leading-none ${isActive ? 'bg-white text-indigo-600 border-indigo-600' : 'bg-indigo-600 text-white border-white'}`}>
                           {unreadCount}
+                        </span>
+                      )}
+                      {filter === 'curated' && curatedCount > 0 && (
+                        <span className={`absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] rounded-full flex items-center justify-center px-1 border-2 text-[10px] leading-none ${isActive ? 'bg-white text-indigo-600 border-indigo-600' : 'bg-indigo-600 text-white border-white'}`}>
+                          {curatedCount}
                         </span>
                       )}
                     </button>
@@ -645,11 +798,16 @@ export default function App() {
               viewType="received"
               currentUser={currentUser}
               messages={messages}
+              selectedId={expandedId}
+              onSelectId={setExpandedId}
               onToggleCheckedOut={handleToggleCheckedOut}
               onArchive={handleArchive}
               onAddMessage={handleAddMessage}
               onToggleFavorite={handleToggleFavorite}
+              onToggleCurated={handleToggleCurated}
               onToggleReaction={handleToggleReaction}
+              reorderable={!selectedSender && allMessagesFilter === 'curated'}
+              onReorder={handleReorderCurated}
             />
           </div>
         </div>
