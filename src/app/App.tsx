@@ -1,14 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { ReminderList } from './components/ReminderList';
 import { QuickSendModal } from './components/QuickSendModal';
-import { Onboarding } from './components/Onboarding';
-import { Send, Archive } from 'lucide-react';
+import { AuthScreen } from './components/AuthScreen';
+import { Send, Archive, LogOut } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { ImageWithFallback } from './components/figma/ImageWithFallback';
 import nudgeLogo from '../imports/image-3.png';
 import { supabase } from './utils/supabase/client';
-
-const USERNAME_KEY = 'nudge-username';
 
 export type ReminderType = 'link' | 'music' | 'video' | 'text';
 
@@ -82,9 +80,8 @@ function groupReactions(rows: any[]): Record<string, Reaction[]> {
 }
 
 export default function App() {
-  const [currentUser, setCurrentUser] = useState<string | null>(() =>
-    typeof window !== 'undefined' ? localStorage.getItem(USERNAME_KEY) : null
-  );
+  const [currentUser, setCurrentUser] = useState<string | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
   const [selectedSender, setSelectedSender] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
@@ -100,6 +97,51 @@ export default function App() {
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
 
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const loadProfile = useCallback(async (userId: string) => {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('display_name')
+      .eq('id', userId)
+      .maybeSingle();
+    if (error || !data) {
+      setCurrentUser(null);
+      return;
+    }
+    setCurrentUser(data.display_name);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    supabase.auth.getSession().then(({ data }) => {
+      if (cancelled) return;
+      const userId = data.session?.user?.id;
+      if (userId) {
+        loadProfile(userId).finally(() => { if (!cancelled) setAuthChecked(true); });
+      } else {
+        setAuthChecked(true);
+      }
+    });
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) {
+        setCurrentUser(null);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      authListener.subscription.unsubscribe();
+    };
+  }, [loadProfile]);
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    setCurrentUser(null);
+    setReminders([]);
+    setMessages([]);
+  };
 
   const loadData = useCallback(async () => {
     const [{ data: reminderRows, error: reminderErr }, { data: reactionRows, error: reactionErr }, { data: messageRows, error: messageErr }] = await Promise.all([
@@ -160,8 +202,7 @@ export default function App() {
     };
   }, [loadData]);
 
-  const handleOnboard = (name: string) => {
-    localStorage.setItem(USERNAME_KEY, name);
+  const handleSignedIn = (name: string) => {
     setCurrentUser(name);
   };
 
@@ -340,8 +381,16 @@ export default function App() {
     return activeReminders.filter(r => r.sender === selectedSender || r.recipient === selectedSender);
   })();
 
+  if (!authChecked) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-white">
+        <p className="text-gray-400 text-sm">Loading…</p>
+      </div>
+    );
+  }
+
   if (!currentUser) {
-    return <Onboarding onSubmit={handleOnboard} />;
+    return <AuthScreen onSignedIn={handleSignedIn} />;
   }
 
   if (dataLoading) {
@@ -390,11 +439,21 @@ export default function App() {
         )}
 
         {/* Header */}
-        <div className="mb-3 sm:mb-6">
-          <ImageWithFallback src={nudgeLogo} alt="Nudge" className="h-24 sm:h-28 w-auto object-contain -mb-8 -ml-3" />
-          <p className="text-gray-600 text-xs sm:text-base italic pl-4 sm:pl-5">
-            Because "I'll check it out later" is a lie.
-          </p>
+        <div className="mb-3 sm:mb-6 flex items-start justify-between">
+          <div>
+            <ImageWithFallback src={nudgeLogo} alt="Nudge" className="h-24 sm:h-28 w-auto object-contain -mb-8 -ml-3" />
+            <p className="text-gray-600 text-xs sm:text-base italic pl-4 sm:pl-5">
+              Because "I'll check it out later" is a lie.
+            </p>
+          </div>
+          <button
+            onClick={handleSignOut}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors mt-1"
+            title="Sign out"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">{currentUser}</span>
+          </button>
         </div>
 
         {/* Main Layout - Sidebar + Content */}
