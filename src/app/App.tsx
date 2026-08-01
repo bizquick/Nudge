@@ -143,15 +143,18 @@ export default function App() {
     setMessages([]);
   };
 
+  const [knownUsers, setKnownUsers] = useState<string[]>([]);
+
   const loadData = useCallback(async () => {
-    const [{ data: reminderRows, error: reminderErr }, { data: reactionRows, error: reactionErr }, { data: messageRows, error: messageErr }] = await Promise.all([
+    const [{ data: reminderRows, error: reminderErr }, { data: reactionRows, error: reactionErr }, { data: messageRows, error: messageErr }, { data: profileRows, error: profileErr }] = await Promise.all([
       supabase.from('reminders').select('*').order('created_at', { ascending: false }),
       supabase.from('reminder_reactions').select('*'),
-      supabase.from('messages').select('*').order('created_at', { ascending: true })
+      supabase.from('messages').select('*').order('created_at', { ascending: true }),
+      supabase.from('profiles').select('display_name').order('display_name', { ascending: true })
     ]);
 
-    if (reminderErr || reactionErr || messageErr) {
-      console.error(reminderErr || reactionErr || messageErr);
+    if (reminderErr || reactionErr || messageErr || profileErr) {
+      console.error(reminderErr || reactionErr || messageErr || profileErr);
       setLoadError("Couldn't reach the server. Check your connection and Supabase setup.");
       return;
     }
@@ -159,6 +162,7 @@ export default function App() {
     const reactionMap = groupReactions(reactionRows || []);
     setReminders((reminderRows || []).map(row => rowToReminder(row, reactionMap[row.id] || [])));
     setMessages((messageRows || []).map(rowToMessage));
+    setKnownUsers((profileRows || []).map(p => p.display_name));
     setLoadError(null);
   }, []);
 
@@ -182,6 +186,7 @@ export default function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'reminders' }, scheduleRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'reminder_reactions' }, scheduleRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, scheduleRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, scheduleRefresh)
       .subscribe();
 
     return () => {
@@ -653,6 +658,7 @@ export default function App() {
       {quickSendTo && (
         <QuickSendModal
           recipient={quickSendTo}
+          knownRecipients={knownUsers.filter(u => u !== currentUser)}
           onSubmit={handleAddReminder}
           onClose={() => setQuickSendTo(null)}
         />
@@ -661,6 +667,7 @@ export default function App() {
       {showNewReminderModal && (
         <QuickSendModal
           recipient=""
+          knownRecipients={knownUsers.filter(u => u !== currentUser)}
           onSubmit={handleAddReminder}
           onClose={() => setShowNewReminderModal(false)}
         />
