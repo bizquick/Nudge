@@ -1,4 +1,4 @@
-import { Link, Music, Video, Type, ExternalLink, Check, MessageCircle, Send, Archive, Star, SmilePlus, Mail } from 'lucide-react';
+import { Link, Music, Video, Type, ExternalLink, Check, MessageCircle, Send, Archive, Star, SmilePlus, ListOrdered, GripVertical } from 'lucide-react';
 import { useState } from 'react';
 import type { Reminder, Message } from '../App';
 
@@ -10,10 +10,12 @@ interface ReminderCardProps {
   onToggleCheckedOut: (id: string) => void;
   onArchive: (id: string) => void;
   onToggleFavorite: (id: string) => void;
+  onToggleCurated: (id: string) => void;
   onAddMessage: (reminderId: string, text: string) => void;
   onToggleReaction: (reminderId: string, emoji: string) => void;
   isSelected: boolean;
   onSelect: (id: string) => void;
+  dragHandleProps?: React.HTMLAttributes<HTMLDivElement>;
 }
 
 export function ReminderCard({ 
@@ -24,10 +26,12 @@ export function ReminderCard({
   onToggleCheckedOut,
   onArchive,
   onToggleFavorite,
+  onToggleCurated,
   onAddMessage,
   onToggleReaction,
   isSelected,
-  onSelect
+  onSelect,
+  dragHandleProps
 }: ReminderCardProps) {
   const [showMessages, setShowMessages] = useState(false);
   const [newMessage, setNewMessage] = useState('');
@@ -94,6 +98,15 @@ export function ReminderCard({
         ? 'border-green-200 bg-green-50/30' 
         : 'border-gray-200 hover:border-gray-300'
     } ${isSelected ? 'ring-2 ring-indigo-400' : ''}`}>
+      {dragHandleProps && (
+        <div
+          {...dragHandleProps}
+          className="flex items-center justify-center py-1 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 hover:bg-gray-50 rounded-t-xl transition-colors"
+          title="Drag to reorder"
+        >
+          <GripVertical className="w-4 h-4 rotate-90" />
+        </div>
+      )}
       <div 
         className={`cursor-pointer relative transition-all ${isSelected ? 'p-4 sm:p-5' : 'p-3 sm:p-4'}`}
         onClick={() => onSelect(reminder.id)}
@@ -175,19 +188,17 @@ export function ReminderCard({
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        onToggleCheckedOut(reminder.id);
+                        onToggleCurated(reminder.id);
                       }}
-                      className={`flex-1 px-3 sm:px-4 py-2.5 sm:py-2 rounded-lg transition-colors text-sm sm:text-sm ${
-                        reminder.checkedOut
-                          ? 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                          : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                      className={`flex-1 px-3 sm:px-4 py-2.5 sm:py-2 rounded-lg transition-colors flex items-center justify-center gap-2 ${
+                        reminder.curated
+                          ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                       }`}
+                      title={reminder.curated ? 'Remove from Curated' : 'Add to Curated'}
                     >
-                      {reminder.checkedOut 
-                        ? 'Unchecked' 
-                        : viewType === 'received' 
-                          ? 'Checked out' 
-                          : 'Waiting...'} 
+                      <ListOrdered className="w-4 h-4" />
+                      <span className="text-sm">{reminder.curated ? 'In Curated' : 'Add to Curated'}</span>
                     </button>
                     <button
                       onClick={(e) => {
