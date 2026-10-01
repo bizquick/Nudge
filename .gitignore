@@ -1,0 +1,24 @@
+# Downloaded packages — recreated with `npm install`
+node_modules/
+
+# Build output — recreated with `npm run build`
+dist/
+dev-dist/
+
+# Copied into the iOS project by `npx cap sync` — recreated on every sync
+ios/App/App/public/
+ios/App/App/capacitor.config.json
+ios/App/App/config.xml
+
+# Xcode per-user and build files
+ios/App/build/
+ios/DerivedData/
+xcuserdata/
+*.xcuserstate
+
+# Local secrets, if any are ever added
+.env
+.env.*
+
+# Mac clutter
+.DS_Store

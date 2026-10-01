@@ -1,6 +1,17 @@
-import { Link, Music, Video, Type, ExternalLink, Check, MessageCircle, Send, Archive, Star, SmilePlus, ListOrdered, GripVertical } from 'lucide-react';
+import { Globe, Music, Video, Type as TypeIcon, Sparkles, UtensilsCrossed, Lightbulb, ExternalLink, Check, MessageCircle, Send, Archive, Star, SmilePlus, Pencil, Forward, Heart, Globe2, FolderInput } from 'lucide-react';
 import { useState } from 'react';
 import type { Reminder, Message } from '../App';
+import type { Folder } from './FolderBar';
+
+// lucide-react doesn't have a literal money-bag glyph, so this renders the
+// emoji instead, matching the one used in the send/compose screen.
+function MoneyBagIcon({ className }: { className?: string }) {
+  return (
+    <span className={`${className ?? ''} inline-flex items-center justify-center leading-none`} style={{ fontSize: '1.05em' }}>
+      💰
+    </span>
+  );
+}
 
 interface ReminderCardProps {
   reminder: Reminder;
@@ -10,12 +21,24 @@ interface ReminderCardProps {
   onToggleCheckedOut: (id: string) => void;
   onArchive: (id: string) => void;
   onToggleFavorite: (id: string) => void;
-  onToggleCurated: (id: string) => void;
+  onUpdateTitle: (id: string, title: string) => void;
+  onForward: (reminder: Reminder) => void;
+  onUpvote?: (id: string) => void;
   onAddMessage: (reminderId: string, text: string) => void;
   onToggleReaction: (reminderId: string, emoji: string) => void;
   isSelected: boolean;
   onSelect: (id: string) => void;
   dragHandleProps?: React.HTMLAttributes<HTMLDivElement>;
+  folderOptions?: FolderOptions;
+  // Mirror the layout (avatar on the left, title/category on the right) for nudges you sent, in chats
+  flipped?: boolean;
+}
+
+// Lets a favorited nudge be filed into one of your Favorites folders
+export interface FolderOptions {
+  folders: Folder[];
+  folderOf: (reminderId: string) => string | null;
+  onMove: (reminderId: string, folderId: string | null) => void;
 }
 
 export function ReminderCard({ 
@@ -26,32 +49,69 @@ export function ReminderCard({
   onToggleCheckedOut,
   onArchive,
   onToggleFavorite,
-  onToggleCurated,
+  onUpdateTitle,
+  onForward,
+  onUpvote,
   onAddMessage,
   onToggleReaction,
   isSelected,
   onSelect,
-  dragHandleProps
+  dragHandleProps,
+  folderOptions,
+  flipped
 }: ReminderCardProps) {
+  const [showFolderMenu, setShowFolderMenu] = useState(false);
+  // Saved to your own My Nudges — tinted light orange so you can tell it's from you
+  const fromMe = reminder.sender === currentUser && reminder.recipients.includes(currentUser);
+  // Only people in a nudge can change it (mark read, favorite, archive) — on someone
+  // else's public nudge in Popular those buttons are hidden, since they couldn't save.
+  const isParticipant = reminder.sender === currentUser || reminder.recipients.includes(currentUser);
+  const liked = reminder.voters.includes(currentUser);
+  const likeButton = (size: 'sm' | 'md') => onUpvote && (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        onUpvote(reminder.id);
+      }}
+      className={`rounded-full border transition-all flex items-center gap-1 shrink-0 ${size === 'sm' ? 'px-2 py-0.5' : 'px-2 py-1 hover:scale-110'} ${
+        liked ? 'bg-rose-50 border-rose-200 text-rose-600' : 'bg-white border-stone-300 hover:bg-stone-100 text-stone-600'
+      }`}
+      title={liked ? 'Unlike' : 'Like'}
+      aria-pressed={liked}
+    >
+      <Heart className={`w-4 h-4 ${liked ? 'fill-rose-500 text-rose-500' : ''}`} />
+      <span className="text-xs">{reminder.voters.length}</span>
+    </button>
+  );
   const [showMessages, setShowMessages] = useState(false);
   const [newMessage, setNewMessage] = useState('');
   const [showReactionPicker, setShowReactionPicker] = useState(false);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(reminder.title);
 
   const icons = {
-    link: Link,
+    website: Globe,
     music: Music,
     video: Video,
-    text: Type
+    text: TypeIcon,
+    unnecessary: MoneyBagIcon,
+    interesting: Sparkles,
+    food: UtensilsCrossed,
+    lifehack: Lightbulb
   };
 
   const colors = {
-    link: 'bg-blue-100 text-blue-600',
+    website: 'bg-blue-100 text-blue-600',
     music: 'bg-purple-100 text-purple-600',
     video: 'bg-red-100 text-red-600',
-    text: 'bg-gray-100 text-gray-600'
+    text: 'bg-stone-100 text-stone-600',
+    unnecessary: 'bg-pink-100 text-pink-600',
+    interesting: 'bg-teal-100 text-teal-600',
+    food: 'bg-green-100 text-green-600',
+    lifehack: 'bg-amber-100 text-amber-600'
   };
 
-  const Icon = icons[reminder.type];
+  const Icon = reminder.type ? icons[reminder.type] : null;
   
   const formatDate = (date: Date) => {
     const now = new Date();
@@ -92,179 +152,222 @@ export function ReminderCard({
   // Get display text (title or URL if no title)
   const displayText = reminder.title || reminder.url || reminder.content;
 
+  // The sender listed as their own recipient is a "Save to My Nudges" copy, not a group member.
+  const isGroup = reminder.recipients.filter(p => p !== reminder.sender).length > 1;
+  const otherParticipants = Array.from(new Set([reminder.sender, ...reminder.recipients])).filter(p => p !== currentUser);
+
+  const handleTitleSave = () => {
+    if (titleDraft.trim() && titleDraft.trim() !== reminder.title) {
+      onUpdateTitle(reminder.id, titleDraft.trim());
+    }
+    setEditingTitle(false);
+  };
+
   return (
-    <div className={`bg-white rounded-xl shadow-sm border-2 transition-all ${ 
-      reminder.checkedOut 
-        ? 'border-green-200 bg-green-50/30' 
-        : 'border-gray-200 hover:border-gray-300'
-    } ${isSelected ? 'ring-2 ring-indigo-400' : ''}`}>
+    // Selected = the card's own border turns orange (not an outer ring, which
+    // neighboring elements and the scroll area's edges could cover up)
+    <div className={`rounded-xl shadow-sm border-2 transition-all ${
+      isSelected
+        ? 'border-orange-400'
+        : fromMe
+          ? 'border-orange-200'
+          : reminder.checkedOut
+            ? 'border-green-200'
+            : 'border-stone-200 hover:border-stone-300'
+    } ${fromMe ? 'bg-orange-50' : reminder.checkedOut ? 'bg-green-50/30' : 'bg-white'}`}>
       {dragHandleProps && (
         <div
           {...dragHandleProps}
-          className="flex items-center justify-center py-1 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 hover:bg-gray-50 rounded-t-xl transition-colors"
+          className="flex items-center justify-center py-2.5 cursor-grab active:cursor-grabbing hover:bg-stone-50 rounded-t-xl transition-colors"
           title="Drag to reorder"
         >
-          <GripVertical className="w-4 h-4 rotate-90" />
+          <div className="w-9 h-1 rounded-full bg-stone-200" />
         </div>
       )}
       <div 
-        className={`cursor-pointer relative transition-all ${isSelected ? 'p-4 sm:p-5' : 'p-3 sm:p-4'}`}
+        className={`cursor-pointer transition-all ${isSelected ? 'p-4 sm:p-5' : 'p-3 sm:p-4'}`}
         onClick={() => onSelect(reminder.id)}
       >
-        {/* Checkmark Button - Upper Left (Always visible, clickable) */}
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggleCheckedOut(reminder.id);
-          }}
-          className={`absolute top-3 left-3 sm:top-4 sm:left-4 ${isSelected ? 'p-2.5 sm:p-3' : 'p-2.5 sm:p-2.5'} rounded-lg shrink-0 transition-all hover:scale-110 ${
-            reminder.checkedOut
-              ? 'bg-green-100 text-green-600'
-              : 'bg-white border-2 border-gray-300 text-gray-400 hover:bg-gray-50 hover:border-gray-400'
-          }`}
-          title={reminder.checkedOut ? 'Mark as unread' : 'Mark as checked out'}
-        >
-          <Check className="w-5 h-5" />
-        </button>
-
-        {/* Sender Avatar Bubble - Upper Right (only when expanded) */}
-        {isSelected && (
-          <div className="absolute top-3 right-3 sm:top-5 sm:right-5">
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-gradient-to-br from-purple-400 to-pink-500 flex items-center justify-center text-white text-sm sm:text-sm shrink-0">
-              {viewType === 'received' 
-                ? reminder.sender.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
-                : reminder.recipient.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
-              }
-            </div>
-          </div>
-        )}
-
-        {/* Type Icon - Position changes based on expanded/collapsed state */}
-        {isSelected ? (
-          // When expanded - Middle Left (Absolute positioned)
-          <div className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 p-2 sm:p-3 rounded-lg bg-opacity-100 shrink-0" style={{ backgroundColor: colors[reminder.type].split(' ')[0].replace('bg-', ''), color: colors[reminder.type].split(' ')[1].replace('text-', '') }}>
-            <div className={`${colors[reminder.type]}`}>
-              <Icon className="w-5 h-5 sm:w-5 sm:h-5" />
-            </div>
-          </div>
-        ) : null}
-
-        <div className={`flex items-start gap-2 sm:gap-4 ${isSelected ? 'pr-12 sm:pr-12 pl-14 sm:pl-14' : 'pr-20 sm:pr-28 pl-14 sm:pl-14'}`}>
-          {/* Content */}
-          <div className="flex-1 min-w-0">
-            {!isSelected ? (
-              // Collapsed view - just title/link
-              <div className="flex items-center justify-between gap-2 py-1.5">
-                <h3 className="text-base sm:text-base truncate">{displayText}</h3>
+        {!isSelected ? (
+          /* Collapsed view — single clean centered row, no checkbox yet */
+          <div className={`flex items-center gap-3 ${flipped ? 'flex-row-reverse' : ''}`}>
+            {reminder.previewImage ? (
+              <img src={reminder.previewImage} alt="" className="rounded-lg object-cover shrink-0 border border-stone-200" style={{ width: '32px', height: '32px' }} />
+            ) : Icon && reminder.type ? (
+              <div className={`p-2 rounded-lg shrink-0 ${colors[reminder.type]}`}>
+                <Icon className="w-4 h-4" />
+              </div>
+            ) : null}
+            <h3 className={`flex-1 min-w-0 truncate text-base ${flipped ? 'text-right' : ''}`}>{displayText}</h3>
+            {/* Popular tab: like count visible (and tappable) without opening the card */}
+            {likeButton('sm')}
+            {isGroup ? (
+              <div className="relative shrink-0 flex items-center gap-1">
+                {reminder.groupName ? (
+                  <span className="px-2 py-1 rounded-full bg-stone-100 text-stone-600 text-[11px] max-w-[90px] truncate">
+                    {reminder.groupName}
+                  </span>
+                ) : (
+                  <div className="relative w-8 h-8">
+                    {otherParticipants.slice(0, 2).map((p, i) => (
+                      <div
+                        key={p}
+                        className="absolute w-6 h-6 rounded-full bg-gradient-to-br from-amber-400 to-rose-500 flex items-center justify-center text-white text-[9px] border-2 border-white"
+                        style={{ left: i * 8, top: i === 1 ? 6 : 0, zIndex: 2 - i }}
+                      >
+                        {p[0]?.toUpperCase()}
+                      </div>
+                    ))}
+                    <div className="absolute w-5 h-5 rounded-full bg-stone-300 flex items-center justify-center text-white text-[8px] border-2 border-white" style={{ left: 16, top: 6, zIndex: 0 }}>
+                      +
+                    </div>
+                  </div>
+                )}
+                {hasUnreadMessages && (
+                  <div className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-orange-600 border-2 border-white"></div>
+                )}
               </div>
             ) : (
-              // Expanded view - full content
-              <>
-                <div className="flex items-start justify-between gap-2 sm:gap-3 mb-2">
-                  <div className="flex-1">
-                    <h3 className="mb-1 text-lg sm:text-lg">{reminder.title}</h3>
-                  </div>
+              <div className="relative shrink-0">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-400 to-rose-500 flex items-center justify-center text-white text-xs">
+                  {viewType === 'received'
+                    ? reminder.sender[0].toUpperCase()
+                    : reminder.recipients[0][0].toUpperCase()}
                 </div>
-
-                <p className="text-gray-700 mb-3">{reminder.content}</p>
-
-                {/* URL Link */}
-                {reminder.url && (
-                  <a
-                    href={reminder.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-sm text-indigo-600 hover:text-indigo-700 mb-3"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                    Open link
-                  </a>
+                {hasUnreadMessages && (
+                  <div className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-orange-600 border-2 border-white"></div>
                 )}
-
-                {/* Action Buttons - Only show when expanded */}
-                <div className="mt-3 pt-3 border-t border-gray-100">
-                  <div className="flex gap-2">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onToggleCurated(reminder.id);
-                      }}
-                      className={`flex-1 px-3 sm:px-4 py-2.5 sm:py-2 rounded-lg transition-colors flex items-center justify-center gap-2 ${
-                        reminder.curated
-                          ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      }`}
-                      title={reminder.curated ? 'Remove from Curated' : 'Add to Curated'}
-                    >
-                      <ListOrdered className="w-4 h-4" />
-                      <span className="text-sm">{reminder.curated ? 'In Curated' : 'Add to Curated'}</span>
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onArchive(reminder.id);
-                      }}
-                      className="px-3 sm:px-4 py-2.5 sm:py-2 rounded-lg transition-colors bg-gray-100 text-gray-700 hover:bg-gray-200 flex items-center gap-2"
-                      title={reminder.archived ? 'Unarchive' : 'Archive'}
-                    >
-                      <Archive className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onToggleFavorite(reminder.id);
-                      }}
-                      className={`px-3 sm:px-4 py-2.5 sm:py-2 rounded-lg transition-colors flex items-center gap-2 ${
-                        reminder.favorited 
-                          ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200' 
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      }`}
-                      title={reminder.favorited ? 'Unfavorite' : 'Favorite'}
-                    >
-                      <Star className={`w-4 h-4 ${reminder.favorited ? 'fill-yellow-500 text-yellow-500' : ''}`} />
-                    </button>
-                  </div>
-                </div>
-              </>
+              </div>
             )}
           </div>
-        </div>
+        ) : (
+          /* Expanded view — checkmark, type icon, and avatar as a normal row (nothing absolutely positioned, so nothing can overlap) */
+          <>
+            <div className={`flex items-center gap-3 mb-3 ${flipped ? 'flex-row-reverse' : ''}`}>
+              {isParticipant && <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleCheckedOut(reminder.id);
+                }}
+                className={`p-2.5 rounded-lg shrink-0 transition-all hover:scale-110 ${
+                  reminder.checkedOut
+                    ? 'bg-green-100 text-green-600'
+                    : 'bg-white border-2 border-stone-300 text-stone-400 hover:bg-stone-50 hover:border-stone-400'
+                }`}
+                title={reminder.checkedOut ? 'Mark as unread' : 'Mark as checked out'}
+              >
+                <Check className="w-5 h-5" />
+              </button>}
 
-        {/* Right side indicators - Only when collapsed */}
-        {!isSelected && (
-          <div className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 flex items-center gap-2 sm:gap-2">
-            {/* Sender Initial */}
-            <div className="w-8 h-8 sm:w-8 sm:h-8 rounded-full bg-gradient-to-br from-purple-400 to-pink-500 flex items-center justify-center text-white text-xs shrink-0">
-              {viewType === 'received' 
-                ? reminder.sender[0].toUpperCase()
-                : reminder.recipient[0].toUpperCase()
-              }
-            </div>
-            
-            {/* Type Icon with unread indicator */}
-            <div className="relative">
-              <div className={`p-2 sm:p-2 rounded-lg ${colors[reminder.type]} shrink-0`}>
-                <Icon className="w-4 h-4 sm:w-4 sm:h-4" />
-              </div>
-              {/* Unread messages indicator */}
-              {hasUnreadMessages && (
-                <div className="absolute -top-1 -right-1 w-3 h-3 sm:w-3 sm:h-3 rounded-full bg-indigo-600 border-2 border-white"></div>
+              {Icon && reminder.type && (
+                <div className={`p-2 sm:p-3 rounded-lg shrink-0 ${colors[reminder.type]}`}>
+                  <Icon className="w-5 h-5" />
+                </div>
+              )}
+
+              {reminder.isPublic && (
+                <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-teal-100 text-teal-700 text-[11px] shrink-0" title="Anyone can see this in Popular">
+                  <Globe2 className="w-3 h-3" />
+                  Public
+                </span>
+              )}
+
+              {isGroup ? (
+                <div className={`${flipped ? 'mr-auto' : 'ml-auto'} flex items-center gap-1.5 shrink-0`} title={otherParticipants.join(', ')}>
+                  {reminder.groupName && (
+                    <span className="px-2 py-1 rounded-full bg-stone-100 text-stone-600 text-xs max-w-[100px] truncate">
+                      {reminder.groupName}
+                    </span>
+                  )}
+                  <div className="relative w-9 h-9 sm:w-10 sm:h-10">
+                    {otherParticipants.slice(0, 2).map((p, i) => (
+                      <div
+                        key={p}
+                        className="absolute w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-gradient-to-br from-amber-400 to-rose-500 flex items-center justify-center text-white text-[10px] border-2 border-white"
+                        style={{ left: i * 10, top: i === 1 ? 8 : 0, zIndex: 2 - i }}
+                      >
+                        {p[0]?.toUpperCase()}
+                      </div>
+                    ))}
+                    {otherParticipants.length > 2 && (
+                      <div className="absolute w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-stone-300 flex items-center justify-center text-white text-[9px] border-2 border-white" style={{ left: 20, top: 8, zIndex: 0 }}>
+                        +{otherParticipants.length - 1}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className={`${flipped ? 'mr-auto' : 'ml-auto'} w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-gradient-to-br from-amber-400 to-rose-500 flex items-center justify-center text-white text-sm shrink-0`}>
+                  {viewType === 'received' 
+                    ? reminder.sender.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
+                    : reminder.recipients[0].split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
+                  }
+                </div>
               )}
             </div>
-          </div>
+
+            {reminder.previewImage && (
+              <img
+                src={reminder.previewImage}
+                alt=""
+                className="rounded-lg object-cover mb-3 border border-stone-200"
+                style={{ width: '64px', height: '64px' }}
+              />
+            )}
+
+            {editingTitle ? (
+              <div className="flex items-center gap-2 mb-1" onClick={(e) => e.stopPropagation()}>
+                <input
+                  autoFocus
+                  value={titleDraft}
+                  onChange={(e) => setTitleDraft(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleTitleSave(); }}
+                  className="flex-1 text-lg border-b-2 border-orange-500 focus:outline-none"
+                />
+                <button onClick={handleTitleSave} className="text-orange-600 text-sm shrink-0">Save</button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 mb-1">
+                <h3 className="text-lg sm:text-lg flex-1 min-w-0">{reminder.title}</h3>
+                {isGroup && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setTitleDraft(reminder.title); setEditingTitle(true); }}
+                    className="text-stone-400 hover:text-stone-600 shrink-0"
+                    title="Edit title"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            )}
+            <p className="text-stone-700 mb-3">{reminder.content}</p>
+
+            {/* URL Link */}
+            {reminder.url && (
+              <a
+                href={reminder.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-sm text-orange-600 hover:text-orange-700 mb-3"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <ExternalLink className="w-4 h-4" />
+                Open link
+              </a>
+            )}
+          </>
         )}
       </div>
 
       {/* Messages Section - Only show when expanded */}
       {isSelected && (
-        <div className="border-t border-gray-200">
+        <div className="border-t border-stone-200">
           <button
             onClick={(e) => {
               e.stopPropagation();
               setShowMessages(!showMessages);
             }}
-            className="w-full px-5 py-3 flex items-center justify-between hover:bg-gray-50 transition-colors"
+            className="w-full px-5 py-3 flex items-center justify-between hover:bg-stone-50 transition-colors"
           >
             <div className="flex items-center gap-2 text-sm">
               <MessageCircle className="w-4 h-4" />
@@ -285,37 +388,30 @@ export function ReminderCard({
           </button>
 
           {showMessages && (
-            <div className="px-5 pb-5 pt-2 bg-gray-50" onClick={(e) => e.stopPropagation()}>
+            <div className="px-5 pb-5 pt-2 bg-stone-50" onClick={(e) => e.stopPropagation()}>
               {/* Message Thread */}
               {messages.length > 0 && (
-                <div className="space-y-3 mb-4">
-                  {messages.map(message => (
-                    <div
-                      key={message.id}
-                      className={`flex gap-2 ${
-                        message.sender === currentUser ? 'flex-row-reverse' : ''
-                      }`}
-                    >
-                      <div
-                        className={`max-w-[75%] rounded-lg px-3 py-2 ${
-                          message.sender === currentUser
-                            ? 'bg-indigo-600 text-white'
-                            : 'bg-white border border-gray-200'
-                        }`}
-                      >
-                        <p className="text-sm mb-1">{message.text}</p>
+                <div className="space-y-2 mb-4">
+                  {/* iMessage style: your messages blue on the right, everyone else's white on the left */}
+                  {messages.map(message => {
+                    const mine = message.sender === currentUser;
+                    return (
+                      <div key={message.id} className={`flex flex-col ${mine ? 'items-end' : 'items-start'}`}>
                         <div
-                          className={`text-xs ${
-                            message.sender === currentUser
-                              ? 'text-indigo-200'
-                              : 'text-gray-500'
+                          className={`max-w-[78%] px-3.5 py-2 text-sm rounded-2xl ${
+                            mine
+                              ? 'bg-blue-500 text-white rounded-br-md'
+                              : 'bg-white text-stone-900 border border-stone-200 rounded-bl-md'
                           }`}
                         >
-                          {message.sender} • {formatTime(message.createdAt)}
+                          {message.text}
                         </div>
+                        <span className="mt-0.5 px-1 text-[11px] text-stone-400">
+                          {mine ? formatTime(message.createdAt) : `${message.sender} · ${formatTime(message.createdAt)}`}
+                        </span>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
 
@@ -326,12 +422,12 @@ export function ReminderCard({
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
                   placeholder="Type a message..."
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                  className="flex-1 px-3 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm"
                 />
                 <button
                   type="submit"
                   disabled={!newMessage.trim()}
-                  className="px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   <Send className="w-4 h-4" />
                 </button>
@@ -343,80 +439,157 @@ export function ReminderCard({
 
       {/* Reactions Section - Only show when expanded */}
       {isSelected && (
-        <div className="border-t border-gray-200 px-5 py-3 bg-gray-50">
-          <div className="flex items-center gap-2 flex-wrap">
-            {/* Existing Reactions */}
-            {reminder.reactions.map((reaction) => (
-              <button
-                key={reaction.emoji}
+        <div className="border-t border-stone-200 px-5 py-3 bg-stone-50 rounded-b-[10px]">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Existing Reactions */}
+              {reminder.reactions.map((reaction) => (
+                <button
+                  key={reaction.emoji}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleReactionClick(reaction.emoji);
+                  }}
+                  className={`px-2 py-1 rounded-full border transition-all hover:scale-110 ${
+                    reaction.users.includes(currentUser)
+                      ? 'bg-orange-100 border-orange-300'
+                      : 'bg-white border-stone-300 hover:bg-stone-100'
+                  }`}
+                  title={reaction.users.join(', ')}
+                >
+                  <span className="text-base">{reaction.emoji}</span>
+                  {reaction.users.length > 1 && (
+                    <span className="text-xs ml-1 text-stone-600">{reaction.users.length}</span>
+                  )}
+                </button>
+              ))}
+
+              {/* Add Reaction Button */}
+              <div className="relative">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowReactionPicker(!showReactionPicker);
+                  }}
+                  className="px-2 py-1 rounded-full border border-stone-300 bg-white hover:bg-stone-100 transition-colors"
+                  title="Add reaction"
+                >
+                  <SmilePlus className="w-4 h-4 text-stone-600" />
+                </button>
+
+                {/* Reaction Picker Popup */}
+                {showReactionPicker && (
+                  <div 
+                    className="absolute bottom-full left-0 mb-2 bg-white rounded-lg shadow-lg border border-stone-200 p-2 flex gap-1 z-10"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {availableEmojis.map((emoji) => (
+                      <button
+                        key={emoji}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleReactionClick(emoji);
+                        }}
+                        className="w-8 h-8 flex items-center justify-center hover:bg-stone-100 rounded transition-colors"
+                      >
+                        <span className="text-lg">{emoji}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Favorite Button */}
+              {isParticipant && <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  handleReactionClick(reaction.emoji);
+                  onToggleFavorite(reminder.id);
                 }}
                 className={`px-2 py-1 rounded-full border transition-all hover:scale-110 ${
-                  reaction.users.includes(currentUser)
-                    ? 'bg-indigo-100 border-indigo-300'
-                    : 'bg-white border-gray-300 hover:bg-gray-100'
+                  reminder.favorited
+                    ? 'bg-amber-100 border-amber-300'
+                    : 'bg-white border-stone-300 hover:bg-stone-100'
                 }`}
-                title={reaction.users.join(', ')}
+                title={reminder.favorited ? 'Unfavorite' : 'Favorite'}
               >
-                <span className="text-base">{reaction.emoji}</span>
-                {reaction.users.length > 1 && (
-                  <span className="text-xs ml-1 text-gray-600">{reaction.users.length}</span>
-                )}
-              </button>
-            ))}
+                <Star className={`w-4 h-4 ${reminder.favorited ? 'fill-amber-500 text-amber-500' : 'text-stone-600'}`} />
+              </button>}
 
-            {/* Add Reaction Button */}
-            <div className="relative">
+              {/* Forward Button */}
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  setShowReactionPicker(!showReactionPicker);
+                  onForward(reminder);
                 }}
-                className="px-2 py-1 rounded-full border border-gray-300 bg-white hover:bg-gray-100 transition-colors"
-                title="Add reaction"
+                className="px-2 py-1 rounded-full border border-stone-300 bg-white text-stone-600 hover:bg-stone-100 transition-all hover:scale-110"
+                title="Forward this nudge"
               >
-                <SmilePlus className="w-4 h-4 text-gray-600" />
+                <Forward className="w-4 h-4" />
               </button>
 
-              {/* Reaction Picker Popup */}
-              {showReactionPicker && (
-                <div 
-                  className="absolute bottom-full left-0 mb-2 bg-white rounded-lg shadow-lg border border-gray-200 p-2 flex gap-1 z-10"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {availableEmojis.map((emoji) => (
+              {/* Move to folder — favorites only */}
+              {folderOptions && reminder.favorited && (() => {
+                const currentFolder = folderOptions.folderOf(reminder.id);
+                const currentName = folderOptions.folders.find(f => f.id === currentFolder)?.name;
+                return (
+                  <div className="relative">
                     <button
-                      key={emoji}
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleReactionClick(emoji);
+                        setShowFolderMenu(!showFolderMenu);
                       }}
-                      className="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded transition-colors"
+                      className={`px-2 py-1 rounded-full border transition-all flex items-center gap-1 text-xs ${
+                        currentFolder ? 'bg-orange-50 border-orange-300 text-orange-700' : 'bg-white border-stone-300 text-stone-600 hover:bg-stone-100'
+                      }`}
+                      title="Move to folder"
                     >
-                      <span className="text-lg">{emoji}</span>
+                      <FolderInput className="w-4 h-4" />
+                      {currentName && <span className="max-w-[90px] truncate">{currentName}</span>}
                     </button>
-                  ))}
-                </div>
-              )}
+
+                    {showFolderMenu && (
+                      <div
+                        className="absolute bottom-full left-0 mb-2 w-48 bg-white rounded-lg shadow-lg border border-stone-200 py-1 z-20"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {folderOptions.folders.length === 0 ? (
+                          <p className="px-3 py-2 text-xs text-stone-500">Make a folder with "New folder" at the top of Favorites first.</p>
+                        ) : (
+                          [{ id: null as string | null, name: 'No folder' }, ...folderOptions.folders].map(f => (
+                            <button
+                              key={f.id ?? 'none'}
+                              onClick={() => {
+                                folderOptions.onMove(reminder.id, f.id);
+                                setShowFolderMenu(false);
+                              }}
+                              className="w-full flex items-center justify-between px-3 py-2 text-sm text-stone-700 hover:bg-stone-50"
+                            >
+                              <span className="truncate">{f.name}</span>
+                              {currentFolder === f.id && <Check className="w-4 h-4 text-orange-600 shrink-0" />}
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* Like button — only present where likes count (the Popular tab) */}
+              {likeButton('md')}
             </div>
 
-            {/* Star Button */}
-            <button
+            {/* Archive Button - bottom right, across from Favorite */}
+            {isParticipant && <button
               onClick={(e) => {
                 e.stopPropagation();
-                onToggleFavorite(reminder.id);
+                onArchive(reminder.id);
               }}
-              className={`px-2 py-1 rounded-full border transition-all hover:scale-110 ${
-                reminder.favorited
-                  ? 'bg-yellow-100 border-yellow-300'
-                  : 'bg-white border-gray-300 hover:bg-gray-100'
-              }`}
-              title={reminder.favorited ? 'Unfavorite' : 'Favorite'}
+              className="px-2 py-1 rounded-full border border-stone-300 bg-white text-stone-600 hover:bg-stone-100 transition-all hover:scale-110 shrink-0"
+              title={reminder.archived ? 'Unarchive' : 'Archive'}
             >
-              <Star className={`w-4 h-4 ${reminder.favorited ? 'fill-yellow-500 text-yellow-500' : 'text-gray-600'}`} />
-            </button>
+              <Archive className="w-4 h-4" />
+            </button>}
           </div>
         </div>
       )}

@@ -119,12 +119,12 @@ export function AuthScreen({ onSignedIn }: AuthScreenProps) {
       <div className="min-h-screen flex items-center justify-center bg-white p-4">
         <div className="w-full max-w-sm text-center">
           <ImageWithFallback src={nudgeLogo} alt="Nudge" className="h-20 w-auto object-contain mx-auto mb-6" />
-          <p className="text-gray-700">
+          <p className="text-stone-700">
             Check your email for a confirmation link, then come back here and log in.
           </p>
           <button
             onClick={() => { setCheckEmail(false); setMode('login'); }}
-            className="mt-6 text-indigo-600 underline text-sm"
+            className="mt-6 text-orange-600 underline text-sm"
           >
             Back to log in
           </button>
@@ -137,20 +137,20 @@ export function AuthScreen({ onSignedIn }: AuthScreenProps) {
     <div className="min-h-screen flex items-center justify-center bg-white p-4">
       <div className="w-full max-w-sm text-center">
         <ImageWithFallback src={nudgeLogo} alt="Nudge" className="h-20 w-auto object-contain mx-auto mb-2" />
-        <p className="text-gray-600 italic mb-8">
+        <p className="text-stone-600 italic mb-8">
           Because "I'll check it out later" is a lie.
         </p>
 
-        <div className="flex mb-6 rounded-lg border border-gray-200 overflow-hidden">
+        <div className="flex mb-6 rounded-lg border border-stone-200 overflow-hidden">
           <button
             onClick={() => { setMode('signup'); setError(null); }}
-            className={`flex-1 py-2 text-sm transition-colors ${mode === 'signup' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600'}`}
+            className={`flex-1 py-2 text-sm transition-colors ${mode === 'signup' ? 'bg-orange-600 text-white' : 'bg-white text-stone-600'}`}
           >
             Sign up
           </button>
           <button
             onClick={() => { setMode('login'); setError(null); }}
-            className={`flex-1 py-2 text-sm transition-colors ${mode === 'login' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600'}`}
+            className={`flex-1 py-2 text-sm transition-colors ${mode === 'login' ? 'bg-orange-600 text-white' : 'bg-white text-stone-600'}`}
           >
             Log in
           </button>
@@ -159,35 +159,35 @@ export function AuthScreen({ onSignedIn }: AuthScreenProps) {
         <form onSubmit={mode === 'signup' ? handleSignUp : handleLogIn} className="space-y-3 text-left">
           {mode === 'signup' && (
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Display name</label>
+              <label className="block text-xs text-stone-500 mb-1">Display name</label>
               <input
                 type="text"
                 autoFocus
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
                 placeholder="What friends will see"
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                className="w-full px-4 py-3 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-300"
               />
             </div>
           )}
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Email</label>
+            <label className="block text-xs text-stone-500 mb-1">Email</label>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300"
+              className="w-full px-4 py-3 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-300"
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Password</label>
+            <label className="block text-xs text-stone-500 mb-1">Password</label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="At least 6 characters"
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300"
+              className="w-full px-4 py-3 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-300"
             />
           </div>
 
@@ -196,14 +196,14 @@ export function AuthScreen({ onSignedIn }: AuthScreenProps) {
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-3 px-4 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-40 transition-colors flex items-center justify-center gap-2"
+            className="w-full py-3 px-4 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-40 transition-colors flex items-center justify-center gap-2"
           >
             <Send className="w-4 h-4" />
             {loading ? 'Please wait…' : mode === 'signup' ? 'Create account' : 'Log in'}
           </button>
         </form>
 
-        <p className="text-xs text-gray-400 mt-6">
+        <p className="text-xs text-stone-400 mt-6">
           Real accounts now — your display name is yours alone, no one else can send as you.
         </p>
       </div>

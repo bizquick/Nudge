@@ -5,14 +5,24 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Nudge</title>
     <meta name="description" content="Send links, music, and videos to people you know — they check them out on their own time." />
-    <meta name="theme-color" content="#4f46e5" />
+    <meta name="theme-color" content="#EA580C" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Nudge" />
     <link rel="apple-touch-icon" href="apple-touch-icon.png" />
     <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
-    <style>html, body { height: 100%; margin: 0; } #root { height: 100%; }</style>
+    <style>
+      html, body {
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        position: fixed;
+        inset: 0;
+        overscroll-behavior: none;
+      }
+      #root { height: 100%; }
+    </style>
   </head>
 
   <body>

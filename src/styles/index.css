@@ -3,3 +3,30 @@
 @import 'tw-animate-css';
 @import './default_theme.css';
 @import './globals.css';
+
+/* iOS Safari/WebKit automatically zooms the whole page in when a focused
+   input's font-size is under 16px (trying to make tiny text readable) —
+   this also throws off the keyboard's focus timing. Forcing every input to
+   at least 16px prevents that zoom from ever triggering, app-wide. */
+input, textarea, select {
+  font-size: 16px !important;
+}
+
+/* Sonner's toast container is a fixed-position overlay independent of our
+   own layout. Make sure the empty container itself never intercepts taps —
+   only an actual visible toast should be clickable. */
+[data-sonner-toaster] {
+  pointer-events: none;
+}
+[data-sonner-toast] {
+  pointer-events: auto;
+}
+
+/* Tab titles at the top of each screen: Fraunces with its "soft" rounding
+   turned up — elegant but relaxed. Bundled with the app, so it works offline. */
+.tab-title {
+  font-family: 'Fraunces Variable', Georgia, serif;
+  font-variation-settings: 'SOFT' 100, 'opsz' 28;
+  font-weight: 450;
+  letter-spacing: 0.005em;
+}
