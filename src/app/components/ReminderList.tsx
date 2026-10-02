@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
+import { Bell, BellOff } from 'lucide-react';
 import { ReminderCard, type FolderOptions } from './ReminderCard';
+import { SwipeRow } from './SwipeRow';
 import type { Reminder, Message } from '../App';
 
 interface ReminderListProps {
@@ -24,6 +26,11 @@ interface ReminderListProps {
   folderOptions?: FolderOptions;
   // Chat threads: nudges you sent sit narrower on the right, received ones on the left
   chatLayout?: boolean;
+  onToggleTodo?: (reminderId: string, index: number) => void;
+  // Chats: swipe a nudge left to silence its notifications
+  swipeable?: boolean;
+  mutedIds?: Set<string>;
+  onToggleMute?: (reminderId: string, title: string) => void;
 }
 
 export function ReminderList({
@@ -45,7 +52,11 @@ export function ReminderList({
   onReorder,
   emptyMessage,
   folderOptions,
-  chatLayout
+  chatLayout,
+  onToggleTodo,
+  swipeable,
+  mutedIds,
+  onToggleMute
 }: ReminderListProps) {
   // Drag to reorder. Pick a card up by pressing and holding anywhere on it
   // (or instantly from the grab strip at its top); it then follows your
@@ -318,6 +329,42 @@ export function ReminderList({
       {orderedReminders.map((reminder) => {
         const isDragging = draggingId === reminder.id;
         const sentByMe = reminder.sender === currentUser;
+        const muted = mutedIds?.has('nudge:' + reminder.id) ?? false;
+        const card = (
+          <ReminderCard
+            reminder={reminder}
+            viewType={viewType}
+            currentUser={currentUser}
+            messages={messages.filter(m => m.reminderId === reminder.id)}
+            onToggleCheckedOut={onToggleCheckedOut}
+            onArchive={onArchive}
+            onToggleFavorite={onToggleFavorite}
+            onUpdateTitle={onUpdateTitle}
+            onForward={onForward}
+            onUpvote={onUpvote}
+            onAddMessage={onAddMessage}
+            onToggleReaction={onToggleReaction}
+            isSelected={selectedId === reminder.id}
+            onSelect={handleSelect}
+            folderOptions={folderOptions}
+            onToggleTodo={onToggleTodo}
+            muted={muted}
+            flipped={chatLayout && sentByMe}
+            dragHandleProps={
+              reorderable
+                ? {
+                    onPointerDown: (e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      cancelPress();
+                      startDrag(reminder.id, e.clientY);
+                    },
+                    style: { touchAction: 'none' }
+                  }
+                : undefined
+            }
+          />
+        );
         return (
           <div
             key={reminder.id}
@@ -330,37 +377,22 @@ export function ReminderList({
             // Stop iOS's text-selection/callout from fighting the press-and-hold
             style={reorderable ? { WebkitUserSelect: 'none', userSelect: 'none', WebkitTouchCallout: 'none' } as React.CSSProperties : undefined}
           >
-            <ReminderCard
-              reminder={reminder}
-              viewType={viewType}
-              currentUser={currentUser}
-              messages={messages.filter(m => m.reminderId === reminder.id)}
-              onToggleCheckedOut={onToggleCheckedOut}
-              onArchive={onArchive}
-              onToggleFavorite={onToggleFavorite}
-              onUpdateTitle={onUpdateTitle}
-              onForward={onForward}
-              onUpvote={onUpvote}
-              onAddMessage={onAddMessage}
-              onToggleReaction={onToggleReaction}
-              isSelected={selectedId === reminder.id}
-              onSelect={handleSelect}
-              folderOptions={folderOptions}
-              flipped={chatLayout && sentByMe}
-              dragHandleProps={
-                reorderable
-                  ? {
-                      onPointerDown: (e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        cancelPress();
-                        startDrag(reminder.id, e.clientY);
-                      },
-                      style: { touchAction: 'none' }
-                    }
-                  : undefined
-              }
-            />
+            {swipeable ? (
+              <SwipeRow
+                disabled={selectedId === reminder.id}
+                actions={[
+                  {
+                    key: 'mute',
+                    label: muted ? 'Unmute' : 'Silence',
+                    icon: muted ? <Bell className="w-5 h-5" /> : <BellOff className="w-5 h-5" />,
+                    onClick: () => onToggleMute?.(reminder.id, reminder.title),
+                    className: 'bg-indigo-500 text-white',
+                  },
+                ]}
+              >
+                {card}
+              </SwipeRow>
+            ) : card}
           </div>
         );
       })}

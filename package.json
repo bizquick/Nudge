@@ -10,9 +10,11 @@
     "ios:open": "vite build && npx cap sync ios && npx cap open ios"
   },
   "dependencies": {
-    "@capacitor/core": "8.4.2",
+    "@capacitor/core": "^8.5.2",
     "@capacitor/haptics": "^8.0.2",
-    "@capacitor/ios": "8.4.2",
+    "@capacitor/ios": "^8.5.2",
+    "@capacitor/push-notifications": "^8.1.2",
+    "@capawesome/capacitor-badge": "^8.0.3",
     "@fontsource-variable/fraunces": "^5.3.0",
     "@supabase/supabase-js": "^2.49.8",
     "class-variance-authority": "0.7.1",
@@ -26,7 +28,7 @@
   },
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",
-    "@capacitor/cli": "8.4.2",
+    "@capacitor/cli": "^8.5.2",
     "@tailwindcss/vite": "4.1.12",
     "@vitejs/plugin-react": "4.7.0",
     "tailwindcss": "4.1.12",

@@ -1,4 +1,4 @@
-import { Globe, Music, Video, Type as TypeIcon, Sparkles, UtensilsCrossed, Lightbulb, ExternalLink, Check, MessageCircle, Send, Archive, Star, SmilePlus, Pencil, Forward, Heart, Globe2, FolderInput } from 'lucide-react';
+import { Globe, Music, Video, Type as TypeIcon, Sparkles, UtensilsCrossed, Lightbulb, ExternalLink, Check, MessageCircle, Send, Archive, Star, SmilePlus, Pencil, Forward, Heart, Globe2, FolderInput, BellOff, ListChecks } from 'lucide-react';
 import { useState } from 'react';
 import type { Reminder, Message } from '../App';
 import type { Folder } from './FolderBar';
@@ -32,6 +32,9 @@ interface ReminderCardProps {
   folderOptions?: FolderOptions;
   // Mirror the layout (avatar on the left, title/category on the right) for nudges you sent, in chats
   flipped?: boolean;
+  onToggleTodo?: (reminderId: string, index: number) => void;
+  /** You've silenced notifications for this nudge */
+  muted?: boolean;
 }
 
 // Lets a favorited nudge be filed into one of your Favorites folders
@@ -58,8 +61,12 @@ export function ReminderCard({
   onSelect,
   dragHandleProps,
   folderOptions,
-  flipped
+  flipped,
+  onToggleTodo,
+  muted
 }: ReminderCardProps) {
+  const todos = reminder.todoItems;
+  const todosDone = todos ? todos.filter(t => t.done).length : 0;
   const [showFolderMenu, setShowFolderMenu] = useState(false);
   // Saved to your own My Nudges — tinted light orange so you can tell it's from you
   const fromMe = reminder.sender === currentUser && reminder.recipients.includes(currentUser);
@@ -169,12 +176,12 @@ export function ReminderCard({
     <div className={`rounded-xl shadow-sm border-2 transition-all ${
       isSelected
         ? 'border-orange-400'
-        : fromMe
-          ? 'border-orange-200'
-          : reminder.checkedOut
-            ? 'border-green-200'
+        : reminder.checkedOut
+          ? 'border-green-500'
+          : fromMe
+            ? 'border-orange-200'
             : 'border-stone-200 hover:border-stone-300'
-    } ${fromMe ? 'bg-orange-50' : reminder.checkedOut ? 'bg-green-50/30' : 'bg-white'}`}>
+    } ${reminder.checkedOut ? 'bg-green-100' : fromMe ? 'bg-orange-50' : 'bg-white'}`}>
       {dragHandleProps && (
         <div
           {...dragHandleProps}
@@ -198,7 +205,17 @@ export function ReminderCard({
                 <Icon className="w-4 h-4" />
               </div>
             ) : null}
-            <h3 className={`flex-1 min-w-0 truncate text-base ${flipped ? 'text-right' : ''}`}>{displayText}</h3>
+            <h3 className={`flex-1 min-w-0 truncate text-base ${flipped ? 'text-right' : ''}`}>
+              {reminder.prioritizedAt && <span className="mr-1.5" title="Priority">🤯</span>}
+              {displayText}
+            </h3>
+            {todos && (
+              <span className="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-full bg-stone-100 text-stone-600 text-xs" title="To-do list">
+                <ListChecks className="w-3.5 h-3.5" />
+                {todosDone}/{todos.length}
+              </span>
+            )}
+            {muted && <BellOff className="w-3.5 h-3.5 text-stone-400 shrink-0" aria-label="Silenced" />}
             {/* Popular tab: like count visible (and tappable) without opening the card */}
             {likeButton('sm')}
             {isGroup ? (
@@ -251,7 +268,7 @@ export function ReminderCard({
                 }}
                 className={`p-2.5 rounded-lg shrink-0 transition-all hover:scale-110 ${
                   reminder.checkedOut
-                    ? 'bg-green-100 text-green-600'
+                    ? 'bg-green-600 text-white'
                     : 'bg-white border-2 border-stone-300 text-stone-400 hover:bg-stone-50 hover:border-stone-400'
                 }`}
                 title={reminder.checkedOut ? 'Mark as unread' : 'Mark as checked out'}
@@ -328,7 +345,11 @@ export function ReminderCard({
               </div>
             ) : (
               <div className="flex items-center gap-2 mb-1">
-                <h3 className="text-lg sm:text-lg flex-1 min-w-0">{reminder.title}</h3>
+                <h3 className="text-lg sm:text-lg flex-1 min-w-0">
+                  {reminder.prioritizedAt && <span className="mr-1.5" title="Priority">🤯</span>}
+                  {reminder.title}
+                </h3>
+                {muted && <BellOff className="w-4 h-4 text-stone-400 shrink-0" aria-label="Silenced" />}
                 {isGroup && (
                   <button
                     onClick={(e) => { e.stopPropagation(); setTitleDraft(reminder.title); setEditingTitle(true); }}
@@ -340,7 +361,31 @@ export function ReminderCard({
                 )}
               </div>
             )}
-            <p className="text-stone-700 mb-3">{reminder.content}</p>
+            {todos ? (
+              // To-do list nudge: tap a bubble to tick it off — everyone in the nudge sees it
+              <ul className="mt-2 mb-3 space-y-1" onClick={(e) => e.stopPropagation()}>
+                {todos.map((item, i) => (
+                  <li key={i}>
+                    <button
+                      type="button"
+                      role="checkbox"
+                      aria-checked={item.done}
+                      onClick={() => onToggleTodo?.(reminder.id, i)}
+                      className="w-full flex items-center gap-3 py-1.5 text-left"
+                    >
+                      <span className={`w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
+                        item.done ? 'bg-green-500 border-green-500 text-white' : 'border-stone-300 bg-white'
+                      }`}>
+                        {item.done && <Check className="w-3.5 h-3.5" />}
+                      </span>
+                      <span className={item.done ? 'text-stone-400 line-through' : 'text-stone-800'}>{item.text}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-stone-700 mb-3">{reminder.content}</p>
+            )}
 
             {/* URL Link */}
             {reminder.url && (

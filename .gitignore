@@ -22,3 +22,8 @@ xcuserdata/
 
 # Mac clutter
 .DS_Store
+
+# Files with private values — never uploaded
+*.local.sql
+*.local.txt
+*.p8

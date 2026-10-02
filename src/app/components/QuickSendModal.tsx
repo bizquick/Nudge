@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
-import { Globe, Music, Video, Type as TypeIcon, Sparkles, UtensilsCrossed, Lightbulb, Send, X, Paperclip, Loader2, Link2, Bookmark } from 'lucide-react';
-import type { ReminderType, Reminder } from '../App';
+import { Globe, Music, Video, Type as TypeIcon, Sparkles, UtensilsCrossed, Lightbulb, Send, X, Paperclip, Loader2, Link2, Bookmark, ListChecks, Plus } from 'lucide-react';
+import type { ReminderType, NewNudge } from '../App';
 import { supabase } from '../utils/supabase/client';
 import nudgeLogo from '../../imports/image-3.png';
 
@@ -19,7 +19,9 @@ interface QuickSendModalProps {
   knownRecipients: string[];
   currentUser: string;
   onClose: () => void;
-  onSubmit: (reminder: Omit<Reminder, 'id' | 'createdAt' | 'sender' | 'checkedOut'>) => void;
+  onSubmit: (reminder: NewNudge) => void;
+  /** Pre-fill the "To" line (e.g. "Nudge group" from inside a group chat) */
+  initialRecipients?: string[];
   initialValues?: {
     type: ReminderType | null;
     title: string;
@@ -29,14 +31,27 @@ interface QuickSendModalProps {
   };
 }
 
-export function QuickSendModal({ recipient, knownRecipients, currentUser, onClose, onSubmit, initialValues }: QuickSendModalProps) {
+// People type links the short way ("nytimes.com"). Add the https:// for them
+// so the link opens and the title/preview lookup works.
+function normalizeUrl(raw: string): string {
+  const u = raw.trim();
+  if (!u) return '';
+  return /^[a-z][a-z0-9+.-]*:\/\//i.test(u) ? u : `https://${u}`;
+}
+
+export function QuickSendModal({ recipient, knownRecipients, currentUser, onClose, onSubmit, initialValues, initialRecipients }: QuickSendModalProps) {
   const [type, setType] = useState<ReminderType | null>(initialValues?.type ?? null);
   const [title, setTitle] = useState(initialValues?.title ?? '');
   const [content, setContent] = useState(initialValues?.content ?? '');
   const [url, setUrl] = useState(initialValues?.url ?? '');
   const [previewImage, setPreviewImage] = useState(initialValues?.previewImage);
   const [recipientQuery, setRecipientQuery] = useState('');
-  const [selectedRecipients, setSelectedRecipients] = useState<string[]>([]);
+  const [selectedRecipients, setSelectedRecipients] = useState<string[]>(initialRecipients ?? []);
+  const [prioritized, setPrioritized] = useState(false);
+  // To-do list mode: a title plus checklist lines instead of a link and description
+  const [isTodo, setIsTodo] = useState(false);
+  const [todoLines, setTodoLines] = useState<string[]>(['']);
+  const todoItems = todoLines.map(t => t.trim()).filter(Boolean);
   // With 2+ people picked: one shared group thread, or a separate 1-on-1 nudge to each person
   const [sendMode, setSendMode] = useState<'group' | 'individual'>('group');
   const [isSaveToSelf, setIsSaveToSelf] = useState(false);
@@ -126,7 +141,7 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
   // reason, we fall back to a cleaned-up hostname instead of leaving it blank.
   const resolveTitleAndPreview = async (): Promise<{ title: string; previewImage?: string }> => {
     const trimmed = title.trim();
-    const trimmedUrl = url.trim();
+    const trimmedUrl = isTodo ? '' : normalizeUrl(url);
 
     if (trimmed && (previewImage || !trimmedUrl)) {
       return { title: trimmed, previewImage };
@@ -180,9 +195,11 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
     batches.forEach(recipients => onSubmit({
       type,
       title: resolved.title,
-      content,
-      url: url || undefined,
-      previewImage: resolved.previewImage,
+      content: isTodo ? '' : content,
+      url: isTodo ? undefined : (normalizeUrl(url) || undefined),
+      previewImage: isTodo ? undefined : resolved.previewImage,
+      todoItems: isTodo ? todoItems.map(text => ({ text, done: false })) : null,
+      prioritized,
       recipients,
       groupName: null, // named from inside the group chat; App reuses the group's existing name
       isPublic,
@@ -201,7 +218,8 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
 
   const people = recipient ? [recipient] : selectedRecipients.filter(r => r !== currentUser);
   const willSaveToSelf = !recipient && isSaveToSelf;
-  const canSend = !submitting && (people.length > 0 || willSaveToSelf) && !!(title.trim() || url.trim());
+  const hasContent = isTodo ? !!title.trim() && todoItems.length > 0 : !!(title.trim() || url.trim());
+  const canSend = !submitting && (people.length > 0 || willSaveToSelf) && hasContent;
   const sendLabel = submitting
     ? 'Sending…'
     : people.length > 1
@@ -329,8 +347,8 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
 
           </div>
 
-          {/* Link or upload — one field, paperclip built in */}
-          <div>
+          {/* Link or upload — one field, paperclip built in (to-do lists don't have a link) */}
+          <div className={isTodo ? 'hidden' : ''}>
             <input
               ref={fileInputRef}
               type="file"
@@ -355,7 +373,11 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
                 <>
                   <input
                     id="quick-url"
-                    type="url"
+                    type="text"
+                    inputMode="url"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
                     value={url}
                     onChange={(e) => { setUrl(e.target.value); setPreviewImage(undefined); }}
                     placeholder="Paste a link"
@@ -383,18 +405,61 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder={url.trim() && !uploadedFileName ? "Title (or we'll use the link's)" : 'Title'}
+              placeholder={isTodo ? 'List title' : url.trim() && !uploadedFileName ? "Title (or we'll use the link's)" : 'Title'}
               className="w-full pb-2.5 text-base font-medium bg-transparent border-b border-stone-200 focus:outline-none focus:border-orange-400 placeholder:text-stone-400 placeholder:font-normal"
             />
             {/* A divider line under the title makes it clear where each field starts */}
-            <textarea
-              id="quick-content"
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              placeholder="Why should they check it out?"
-              rows={3}
-              className="w-full mt-3 text-sm text-stone-700 bg-transparent focus:outline-none resize-none placeholder:text-stone-400"
-            />
+            {isTodo ? (
+              <div className="mt-2 space-y-1">
+                {todoLines.map((line, i) => (
+                  <div key={i} className="flex items-center gap-2.5">
+                    <span className="w-5 h-5 rounded-full border-2 border-stone-300 shrink-0" aria-hidden="true" />
+                    <input
+                      type="text"
+                      value={line}
+                      onChange={(e) => setTodoLines(prev => prev.map((l, j) => j === i ? e.target.value : l))}
+                      onKeyDown={(e) => {
+                        // Return adds the next line instead of sending the nudge
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          if (line.trim()) setTodoLines(prev => [...prev.slice(0, i + 1), '', ...prev.slice(i + 1)]);
+                        }
+                      }}
+                      autoFocus={i > 0 && i === todoLines.length - 1 && !line}
+                      placeholder={i === 0 ? 'First thing to do' : 'Next thing'}
+                      aria-label={`To-do item ${i + 1}`}
+                      className="flex-1 min-w-0 py-1.5 text-sm bg-transparent focus:outline-none placeholder:text-stone-400"
+                    />
+                    {todoLines.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => setTodoLines(prev => prev.filter((_, j) => j !== i))}
+                        className="p-1 text-stone-400 hover:text-stone-600 shrink-0"
+                        aria-label={`Remove item ${i + 1}`}
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setTodoLines(prev => [...prev, ''])}
+                  className="flex items-center gap-1.5 pt-1 text-sm text-orange-600"
+                >
+                  <Plus className="w-4 h-4" /> Add item
+                </button>
+              </div>
+            ) : (
+              <textarea
+                id="quick-content"
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                placeholder="Why should they check it out?"
+                rows={3}
+                className="w-full mt-3 text-sm text-stone-700 bg-transparent focus:outline-none resize-none placeholder:text-stone-400"
+              />
+            )}
           </div>
 
           {/* Categories — one swipeable row */}
@@ -440,6 +505,28 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
             >
               <Globe className="w-3.5 h-3.5" />
               Public
+            </button>
+            <button
+              type="button"
+              aria-pressed={prioritized}
+              onClick={() => setPrioritized(v => !v)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition-colors ${
+                prioritized ? 'border-orange-600 bg-orange-50 text-orange-700' : 'border-stone-300 text-stone-600'
+              }`}
+            >
+              <span aria-hidden="true">🤯</span>
+              Prioritize
+            </button>
+            <button
+              type="button"
+              aria-pressed={isTodo}
+              onClick={() => setIsTodo(v => !v)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition-colors ${
+                isTodo ? 'border-orange-600 bg-orange-50 text-orange-700' : 'border-stone-300 text-stone-600'
+              }`}
+            >
+              <ListChecks className="w-3.5 h-3.5" />
+              To-do list
             </button>
           </div>
         </div>

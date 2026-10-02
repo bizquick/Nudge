@@ -3,13 +3,15 @@ import { ReminderList } from './components/ReminderList';
 import { QuickSendModal } from './components/QuickSendModal';
 import { SortMenu, sortReminders, loadSortSetting, saveSortSetting, type SortSetting } from './components/SortMenu';
 import { FolderBar, type Folder } from './components/FolderBar';
+import { SwipeRow } from './components/SwipeRow';
 import { AuthScreen } from './components/AuthScreen';
-import { Send, Archive, ArchiveX, Trash2, LogOut, Inbox as InboxIcon, Users, User, ChevronLeft, ChevronDown, TrendingUp, Pencil } from 'lucide-react';
+import { Send, Archive, LogOut, Inbox as InboxIcon, Users, User, ChevronLeft, ChevronDown, TrendingUp, Pencil, BellOff, Bell } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { ImageWithFallback } from './components/figma/ImageWithFallback';
 import nudgeLogo from '../imports/image-3.png';
 import nIconTonal from '../imports/n-icon-tonal.png';
 import { supabase } from './utils/supabase/client';
+import { registerPush, unregisterPush, setBadge } from './utils/push';
 
 export type ReminderType = 'website' | 'music' | 'video' | 'text' | 'unnecessary' | 'interesting' | 'food' | 'lifehack';
 
@@ -47,7 +49,19 @@ export interface Reminder {
   voters: string[];
   reactions: Reaction[];
   createdAt: Date;
+  /** When the sender marked it a priority (🤯) — null if not prioritized */
+  prioritizedAt: Date | null;
+  /** To-do list nudges carry their checklist here — null for ordinary nudges */
+  todoItems: TodoItem[] | null;
 }
+
+export interface TodoItem {
+  text: string;
+  done: boolean;
+}
+
+/** What the New Nudge form hands back: a nudge to create, plus the "prioritize" choice */
+export type NewNudge = Omit<Reminder, 'id' | 'createdAt' | 'sender' | 'checkedOut' | 'prioritizedAt'> & { prioritized: boolean };
 
 function rowToReminder(row: any, reactions: Reaction[] = [], voters: string[] = []): Reminder {
   return {
@@ -70,7 +84,9 @@ function rowToReminder(row: any, reactions: Reaction[] = [], voters: string[] = 
     voters,
     manualOrder: row.manual_order ?? null,
     reactions,
-    createdAt: new Date(row.created_at)
+    createdAt: new Date(row.created_at),
+    prioritizedAt: row.prioritized_at ? new Date(row.prioritized_at) : null,
+    todoItems: Array.isArray(row.todo_items) ? row.todo_items : null
   };
 }
 
@@ -118,6 +134,23 @@ function realRecipients(r: Reminder): string[] {
 
 function isGroupReminder(r: Reminder): boolean {
   return realRecipients(r).length > 1;
+}
+
+// Shared list order: 🤯 priorities first (oldest priority on top), then everything
+// still unchecked, then checked ones at the bottom. A nudge you have open keeps
+// its place until you close it, so it doesn't jump away mid-read.
+function withPrioritiesFirst(list: Reminder[], openId: string | null, sinkChecked: boolean): Reminder[] {
+  const isDone = (r: Reminder) => sinkChecked && r.checkedOut && r.id !== openId;
+  const rank = (r: Reminder) => (isDone(r) ? 2 : r.prioritizedAt ? 0 : 1);
+  return list
+    .map((r, i) => ({ r, i }))
+    .sort((a, b) => {
+      const ra = rank(a.r), rb = rank(b.r);
+      if (ra !== rb) return ra - rb;
+      if (ra === 0) return a.r.prioritizedAt!.getTime() - b.r.prioritizedAt!.getTime();
+      return a.i - b.i; // otherwise keep the order the list came in
+    })
+    .map(x => x.r);
 }
 
 // Saved to the sender's own My Nudges (alone or alongside real recipients).
@@ -171,6 +204,10 @@ export default function App() {
   const [folderOfReminder, setFolderOfReminder] = useState<Record<string, string>>({});
   const [foldersReady, setFoldersReady] = useState(false);
   const [activeFolder, setActiveFolder] = useState<string | null>(null);
+
+  // Silenced notifications. Each entry is 'contact:<name>', 'group:<key>' or 'nudge:<id>'.
+  const [mutes, setMutes] = useState<Set<string>>(new Set());
+  const [quickSendGroup, setQuickSendGroup] = useState<string[] | null>(null);
   const selectSender = (sender: string | null) => {
     setSelectedSender(sender);
     setExpandedId(null);
@@ -224,6 +261,7 @@ export default function App() {
   }, [loadProfile]);
 
   const handleSignOut = async () => {
+    await unregisterPush(); // before signing out, while we're still allowed to remove this phone's token
     await supabase.auth.signOut();
     setCurrentUser(null);
     setReminders([]);
@@ -271,6 +309,10 @@ export default function App() {
       setFolderOfReminder(Object.fromEntries((folderItemRows || []).map(i => [i.reminder_id, i.folder_id])));
       setFoldersReady(true);
     }
+
+    const { data: muteRows, error: muteErr } = await supabase.from('mutes').select('target');
+    if (muteErr) console.warn('Mutes unavailable:', muteErr);
+    else setMutes(new Set((muteRows || []).map(m => m.target)));
   }, []);
 
   const scheduleRefresh = useCallback(() => {
@@ -320,7 +362,7 @@ export default function App() {
     setCurrentUser(name);
   };
 
-  const handleAddReminder = async (reminder: Omit<Reminder, 'id' | 'createdAt' | 'sender' | 'checkedOut'>) => {
+  const handleAddReminder = async (reminder: NewNudge) => {
     if (!currentUser) return;
     // Groups are named from inside the group chat, so a new nudge to an existing
     // group carries that group's current name along with it.
@@ -341,7 +383,9 @@ export default function App() {
       is_public: reminder.isPublic || false,
       checked_out: false,
       archived: false,
-      favorited: false
+      favorited: false,
+      ...(reminder.prioritized ? { prioritized_at: new Date().toISOString() } : {}),
+      ...(reminder.todoItems ? { todo_items: reminder.todoItems } : {})
     };
     const { data, error } = await supabase.from('reminders').insert(payload).select().single();
     if (error) {
@@ -425,9 +469,53 @@ export default function App() {
     const reminder = reminders.find(r => r.id === id);
     if (!reminder) return;
     const nextValue = !reminder.archived;
-    setReminders(prev => prev.map(r => r.id === id ? { ...r, archived: nextValue } : r));
-    const { error } = await supabase.from('reminders').update({ archived: nextValue }).eq('id', id);
-    if (error) console.error(error);
+    const apply = async (value: boolean) => {
+      setReminders(prev => prev.map(r => r.id === id ? { ...r, archived: value } : r));
+      const { error } = await supabase.from('reminders').update({ archived: value }).eq('id', id);
+      if (error) console.error(error);
+    };
+    apply(nextValue);
+    if (nextValue) {
+      toast('Archived', { duration: 4000, action: { label: 'Undo', onClick: () => apply(false) } });
+    }
+  };
+
+  // Tick or untick one line of a to-do list nudge (everyone in the nudge sees it)
+  const handleToggleTodo = async (id: string, index: number) => {
+    const reminder = reminders.find(r => r.id === id);
+    if (!reminder?.todoItems) return;
+    const next = reminder.todoItems.map((item, i) => i === index ? { ...item, done: !item.done } : item);
+    setReminders(prev => prev.map(r => r.id === id ? { ...r, todoItems: next } : r));
+    const { error } = await supabase.from('reminders').update({ todo_items: next }).eq('id', id);
+    if (error) {
+      console.error(error);
+      toast('Could not update that to-do');
+    }
+  };
+
+  // Silence or un-silence notifications for a person, a group, or a single nudge
+  const handleToggleMute = async (target: string, label: string) => {
+    if (!currentUser) return;
+    const wasMuted = mutes.has(target);
+    const apply = async (mute: boolean) => {
+      setMutes(prev => {
+        const next = new Set(prev);
+        if (mute) next.add(target); else next.delete(target);
+        return next;
+      });
+      const { error } = mute
+        ? await supabase.from('mutes').upsert({ owner_name: currentUser, target }, { onConflict: 'owner_name,target' })
+        : await supabase.from('mutes').delete().match({ owner_name: currentUser, target });
+      if (error) {
+        console.error(error);
+        toast('Could not change notifications');
+      }
+    };
+    apply(!wasMuted);
+    toast(wasMuted ? `Notifications on for ${label}` : `Silenced ${label}`, {
+      duration: 4000,
+      action: { label: 'Undo', onClick: () => apply(wasMuted) },
+    });
   };
 
   const handleToggleFavorite = async (id: string) => {
@@ -531,7 +619,15 @@ export default function App() {
     }
   };
 
-  const handleArchiveContact = (name: string) => setContactStatus(name, 'archived');
+  // Archive a whole chat (a person, or a group as 'group:<key>') — with Undo
+  const handleArchiveContact = (name: string, label: string = name) => {
+    setContactStatus(name, 'archived');
+    toast(`Archived chat with ${label}`, {
+      duration: 4000,
+      action: { label: 'Undo', onClick: () => handleRestoreContact(name) },
+    });
+  };
+
   const handleDeleteContact = (name: string) => setContactStatus(name, 'deleted');
 
   const handleRestoreContact = async (name: string) => {
@@ -648,7 +744,7 @@ export default function App() {
 
   // Group threads: identified by their exact participant set, so every nudge
   // sent among the same people threads together regardless of who sent it.
-  const groups = (() => {
+  const allGroups = (() => {
     const map = new Map<string, { key: string; participants: string[]; groupName: string | null; count: number; unread: number }>();
     activeReminders.filter(isGroupReminder).forEach(r => {
       const key = groupKeyFor(r)!;
@@ -665,25 +761,33 @@ export default function App() {
     });
     return Array.from(map.values()).sort((a, b) => (a.groupName || a.participants.join()).localeCompare(b.groupName || b.participants.join()));
   })();
+  const groupLabel = (g: { groupName: string | null; participants: string[] }) => g.groupName || g.participants.join(', ');
+  // Archived group chats are stored like archived contacts, under 'group:<key>'
+  const groups = allGroups.filter(g => !hiddenContactNames.has('group:' + g.key));
+  const chatLabel = (name: string) => {
+    if (!name.startsWith('group:')) return name;
+    const g = allGroups.find(x => 'group:' + x.key === name);
+    return g ? groupLabel(g) : 'Group';
+  };
 
   const allRemindersForUser = reminders.filter(r =>
     r.sender === currentUser || r.recipients.includes(currentUser)
   );
 
   const selectedGroupKey = selectedSender?.startsWith('group:') ? selectedSender.slice('group:'.length) : null;
-  const selectedGroupMeta = selectedGroupKey ? groups.find(g => g.key === selectedGroupKey) : null;
+  const selectedGroupMeta = selectedGroupKey ? allGroups.find(g => g.key === selectedGroupKey) : null;
 
   const displayedReminders = (() => {
     if (selectedSender === 'My Reminders') {
-      return reminders.filter(r => isSavedToSelf(r, currentUser) && !r.archived);
+      return withPrioritiesFirst(reminders.filter(r => isSavedToSelf(r, currentUser) && !r.archived), expandedId, true);
     }
     if (selectedGroupKey) {
-      return activeReminders.filter(r => groupKeyFor(r) === selectedGroupKey);
+      return withPrioritiesFirst(activeReminders.filter(r => groupKeyFor(r) === selectedGroupKey), expandedId, true);
     }
     if (!selectedSender) {
       const sort = sortSettings[allMessagesFilter];
       if (allMessagesFilter === 'unread') {
-        return sortReminders(inboxReminders.filter(r => (!r.checkedOut || r.id === expandedId) && !r.archived), sort);
+        return withPrioritiesFirst(sortReminders(inboxReminders.filter(r => (!r.checkedOut || r.id === expandedId) && !r.archived), sort), expandedId, false);
       }
       if (allMessagesFilter === 'favorited') {
         const favorites = allRemindersForUser.filter(r => r.favorited && !r.archived);
@@ -691,13 +795,34 @@ export default function App() {
       }
       if (allMessagesFilter === 'archived') return sortReminders(allRemindersForUser.filter(r => r.archived), sort);
     }
-    return activeReminders.filter(r =>
+    return withPrioritiesFirst(activeReminders.filter(r =>
       !isGroupReminder(r) && (r.sender === selectedSender || realRecipients(r)[0] === selectedSender)
-    );
+    ), expandedId, true);
   })();
 
   // Popular is shared by everyone. (Archiving only tidies your own inbox — it no
   // longer pulls a public nudge out of Popular for everybody.)
+  // Swipe-left buttons on a chat row: silence notifications, or archive the chat
+  const chatSwipeActions = (target: string, archiveName: string, label: string) => {
+    const muted = mutes.has(target);
+    return [
+      {
+        key: 'mute',
+        label: muted ? 'Unmute' : 'Silence',
+        icon: muted ? <Bell className="w-5 h-5" /> : <BellOff className="w-5 h-5" />,
+        onClick: () => handleToggleMute(target, label),
+        className: 'bg-indigo-500 text-white',
+      },
+      {
+        key: 'archive',
+        label: 'Archive',
+        icon: <Archive className="w-5 h-5" />,
+        onClick: () => handleArchiveContact(archiveName, label),
+        className: 'bg-stone-500 text-white',
+      },
+    ];
+  };
+
   const publicReminders = reminders.filter(r => r.isPublic);
 
   // Most Popular: most likes first; ties go to the newer nudge
@@ -710,6 +835,22 @@ export default function App() {
   // Explore: public nudges in random order, minus ones you sent or already liked.
   // Worked out when you shuffle (or new nudges arrive) — liking one doesn't make it
   // vanish mid-scroll; it drops out on the next shuffle.
+  // iPhone notifications: once signed in, ask permission (first time) and register this phone.
+  // Tapping a notification brings you to Home → Unread.
+  useEffect(() => {
+    if (!currentUser) return;
+    registerPush(currentUser, () => {
+      setSelectedSender(null);
+      setMobileTab('inbox');
+      setAllMessagesFilter('unread');
+    });
+  }, [currentUser]);
+
+  // Keep the red number on the app icon equal to your unread count
+  useEffect(() => {
+    if (currentUser && !dataLoading) setBadge(unreadCount);
+  }, [currentUser, dataLoading, unreadCount]);
+
   const exploreReminders = useMemo(() => {
     const shuffled = publicReminders.filter(r => r.sender !== currentUser && !r.voters.includes(currentUser));
     for (let i = shuffled.length - 1; i > 0; i--) {
@@ -843,10 +984,19 @@ export default function App() {
 
         {/* Secondary control row: View Archive (thread) or filter tabs (inbox) */}
         {selectedSender ? (
-          <div className="mb-3 flex justify-end">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            {selectedSender === 'My Reminders' ? <span /> : (
+              <button
+                onClick={() => selectedGroupMeta ? setQuickSendGroup(selectedGroupMeta.participants) : setQuickSendTo(selectedSender)}
+                className="min-w-0 flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-600 text-white active:bg-orange-700 transition-colors"
+              >
+                <Send className="w-4 h-4 shrink-0" />
+                <span className="text-sm truncate">Nudge {selectedGroupMeta ? (selectedGroupMeta.groupName || 'group') : selectedSender}</span>
+              </button>
+            )}
             <button
               onClick={() => setShowArchived(!showArchived)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+              className={`shrink-0 flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
                 showArchived
                   ? 'bg-orange-100 text-orange-700'
                   : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
@@ -890,6 +1040,9 @@ export default function App() {
           {selectedSender ? (
             <ReminderList
               chatLayout={selectedSender !== 'My Reminders'}
+              swipeable
+              mutedIds={mutes}
+              onToggleMute={(id, title) => handleToggleMute('nudge:' + id, `"${title}"`)}
               reminders={displayedReminders}
               viewType="received"
               currentUser={currentUser}
@@ -903,6 +1056,7 @@ export default function App() {
               onUpdateTitle={handleUpdateTitle}
               onForward={setForwardingReminder}
               onToggleReaction={handleToggleReaction}
+              onToggleTodo={handleToggleTodo}
             />
           ) : mobileTab === 'inbox' ? (
             <>
@@ -940,6 +1094,7 @@ export default function App() {
               onUpdateTitle={handleUpdateTitle}
               onForward={setForwardingReminder}
               onToggleReaction={handleToggleReaction}
+              onToggleTodo={handleToggleTodo}
               reorderable={sortSettings[allMessagesFilter].key === 'custom'}
               onReorder={handleReorderUnread}
               emptyMessage={
@@ -1005,6 +1160,7 @@ export default function App() {
                 onUpdateTitle={handleUpdateTitle}
                 onForward={setForwardingReminder}
                 onToggleReaction={handleToggleReaction}
+              onToggleTodo={handleToggleTodo}
                 onUpvote={handleToggleVote}
                 emptyMessage={
                   popularSubTab === 'top'
@@ -1051,65 +1207,51 @@ export default function App() {
                 const initials = contact.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
 
                 return (
-                  <div key={contact} className="flex items-center gap-1 rounded-xl hover:bg-stone-50">
-                    <button
-                      onClick={() => selectSender(contact)}
-                      className="flex-1 min-w-0 px-3 py-3 flex items-center gap-3 active:bg-stone-100 transition-colors rounded-xl text-left"
-                    >
-                      <div className="w-11 h-11 rounded-full bg-gradient-to-br from-amber-400 to-rose-500 flex items-center justify-center text-white text-sm shrink-0 relative">
-                        {initials}
-                        {unreadCount > 0 && (
-                          <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-orange-600 text-white text-[10px] flex items-center justify-center border-2 border-white">
-                            {unreadCount}
-                          </div>
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm truncate">{contact}</p>
-                        <p className="text-xs text-stone-500">{count} nudges</p>
-                      </div>
-                    </button>
-                    {/* Always-visible actions (no hover-only controls — this is a touchscreen) */}
-                    <div className="flex items-center gap-1 pr-1 shrink-0">
+                  <SwipeRow key={contact} actions={chatSwipeActions('contact:' + contact, contact, contact)}>
+                    <div className="flex items-center gap-1 rounded-xl" style={{ background: '#FEFBF6' }}>
+                      <button
+                        onClick={() => selectSender(contact)}
+                        className="flex-1 min-w-0 px-3 py-3 flex items-center gap-3 active:bg-stone-100 transition-colors rounded-xl text-left"
+                      >
+                        <div className="w-11 h-11 rounded-full bg-gradient-to-br from-amber-400 to-rose-500 flex items-center justify-center text-white text-sm shrink-0 relative">
+                          {initials}
+                          {unreadCount > 0 && (
+                            <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-orange-600 text-white text-[10px] flex items-center justify-center border-2 border-white">
+                              {unreadCount}
+                            </div>
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm truncate flex items-center gap-1.5">
+                            <span className="truncate">{contact}</span>
+                            {mutes.has('contact:' + contact) && <BellOff className="w-3.5 h-3.5 text-stone-400 shrink-0" aria-label="Silenced" />}
+                          </p>
+                          <p className="text-xs text-stone-500">{count} nudges</p>
+                        </div>
+                      </button>
+                      {/* Silence and Archive live behind a swipe left */}
                       <button
                         onClick={() => setQuickSendTo(contact)}
-                        className="p-2.5 rounded-lg text-orange-600 hover:bg-orange-50 active:bg-orange-100"
+                        className="p-2.5 mr-1 rounded-lg text-orange-600 hover:bg-orange-50 active:bg-orange-100 shrink-0"
                         title={`Send to ${contact}`}
                       >
                         <Send className="w-4 h-4" />
                       </button>
-                      <button
-                        onClick={() => handleArchiveContact(contact)}
-                        className="p-2.5 rounded-lg text-stone-500 hover:bg-stone-100 active:bg-stone-200"
-                        title={`Archive ${contact}`}
-                      >
-                        <ArchiveX className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => {
-                          if (confirm(`Remove ${contact} from your contact list? Your nudges with them are kept — this just hides them from People.`)) {
-                            handleDeleteContact(contact);
-                          }
-                        }}
-                        className="p-2.5 rounded-lg text-red-500 hover:bg-red-50 active:bg-red-100"
-                        title={`Delete ${contact}`}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
                     </div>
-                  </div>
+                  </SwipeRow>
                 );
               })}
 
               {/* Groups */}
               {groups.map(group => {
-                const displayName = group.groupName || group.participants.join(', ');
+                const displayName = groupLabel(group);
                 const initials = group.participants.slice(0, 3).map(p => p[0]?.toUpperCase() ?? '?');
                 return (
+                  <SwipeRow key={group.key} actions={chatSwipeActions('group:' + group.key, 'group:' + group.key, displayName)}>
                   <button
-                    key={group.key}
                     onClick={() => selectSender('group:' + group.key)}
-                    className="w-full px-3 py-3 flex items-center gap-3 hover:bg-stone-50 active:bg-stone-100 transition-colors rounded-xl text-left"
+                    className="w-full px-3 py-3 flex items-center gap-3 active:bg-stone-100 transition-colors rounded-xl text-left"
+                    style={{ background: '#FEFBF6' }}
                   >
                     <div className="relative shrink-0 w-11 h-11">
                       {initials.map((letter, i) => (
@@ -1133,10 +1275,14 @@ export default function App() {
                       )}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm truncate">{displayName}</p>
+                      <p className="text-sm truncate flex items-center gap-1.5">
+                        <span className="truncate">{displayName}</span>
+                        {mutes.has('group:' + group.key) && <BellOff className="w-3.5 h-3.5 text-stone-400 shrink-0" aria-label="Silenced" />}
+                      </p>
                       <p className="text-xs text-stone-500">{group.count} nudges &middot; {group.participants.length + 1} people</p>
                     </div>
                   </button>
+                  </SwipeRow>
                 );
               })}
 
@@ -1147,18 +1293,29 @@ export default function App() {
                     onClick={() => setShowArchivedContacts(!showArchivedContacts)}
                     className="w-full px-3 py-2.5 flex items-center justify-between text-sm text-stone-500 hover:bg-stone-50 rounded-lg transition-colors"
                   >
-                    <span>Archived contacts ({archivedContactNames.length})</span>
+                    <span>Archived chats ({archivedContactNames.length})</span>
                     <ChevronDown className={`w-4 h-4 transition-transform ${showArchivedContacts ? 'rotate-180' : ''}`} />
                   </button>
                   {showArchivedContacts && archivedContactNames.map(name => (
-                    <div key={name} className="px-3 py-2.5 flex items-center justify-between">
-                      <span className="text-sm text-stone-600">{name}</span>
+                    <div key={name} className="px-3 py-2.5 flex items-center justify-between gap-3">
+                      <span className="text-sm text-stone-600 truncate flex-1 min-w-0">{chatLabel(name)}</span>
                       <button
                         onClick={() => handleRestoreContact(name)}
-                        className="text-xs text-orange-600 hover:text-orange-700 underline"
-                        title={`Restore ${name}`}
+                        className="text-xs text-orange-600 hover:text-orange-700 underline shrink-0"
+                        title={`Restore ${chatLabel(name)}`}
                       >
                         Restore
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (confirm(`Delete your chat with ${chatLabel(name)}? It disappears from your Nudges tab for good. The nudges themselves aren't deleted for the other people in them.`)) {
+                            handleDeleteContact(name);
+                          }
+                        }}
+                        className="text-xs text-red-600 hover:text-red-700 underline shrink-0"
+                        title={`Delete ${chatLabel(name)}`}
+                      >
+                        Delete
                       </button>
                     </div>
                   ))}
@@ -1254,6 +1411,17 @@ export default function App() {
           currentUser={currentUser}
           onSubmit={handleAddReminder}
           onClose={() => setQuickSendTo(null)}
+        />
+      )}
+      {/* "Nudge group" from inside a group chat — everyone pre-filled, sent as a group */}
+      {quickSendGroup && (
+        <QuickSendModal
+          recipient=""
+          initialRecipients={quickSendGroup}
+          knownRecipients={knownUsers.filter(u => u !== currentUser)}
+          currentUser={currentUser}
+          onSubmit={handleAddReminder}
+          onClose={() => setQuickSendGroup(null)}
         />
       )}
       {/* New Reminder Modal */}
