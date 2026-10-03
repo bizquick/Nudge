@@ -433,6 +433,7 @@ export function ReminderList({
         return (
           <div
             key={reminder.id}
+            data-nudge-card
             ref={(el) => {
               if (el) itemRefs.current.set(reminder.id, el);
               else itemRefs.current.delete(reminder.id);

@@ -1310,7 +1310,14 @@ export default function App() {
       </div>
 
       {/* Scrollable content — only this area scrolls */}
-      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain" style={{ WebkitOverflowScrolling: 'touch' }}>
+      <div
+        className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
+        style={{ WebkitOverflowScrolling: 'touch' }}
+        // Tapping anywhere outside an open nudge closes it (a checked nudge then leaves Unread)
+        onClick={(e) => {
+          if (expandedId && !(e.target as HTMLElement).closest('[data-nudge-card], button, a, input, textarea')) setExpandedId(null);
+        }}
+      >
         <div className="max-w-2xl mx-auto px-4 pb-4 w-full">
           {selectedSender ? (
             <ReminderList
