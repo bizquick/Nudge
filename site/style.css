@@ -1,19 +1,22 @@
 :root {
-  --bg: #fefbf6;
-  --text: #1c1917;
-  --muted: #57534e;
-  --accent: #ea580c;
-  --line: #e7e5e4;
-  --card: #ffffff;
+  /* Flag brand: cream, ink, forest green, gold */
+  --bg: #FBF6EC;
+  --text: #2B2620;
+  --muted: #6B6358;
+  --accent: #1F5C3F;
+  --gold: #E8C77A;
+  --line: #E8E0D0;
+  --card: #FFFFFF;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #1c1917;
-    --text: #f5f5f4;
-    --muted: #a8a29e;
-    --accent: #fb923c;
-    --line: #44403c;
-    --card: #292524;
+    --bg: #17201B;
+    --text: #F3EEE4;
+    --muted: #A9B2AC;
+    --accent: #7DB394;
+    --gold: #E8C77A;
+    --line: #2F3A33;
+    --card: #1F2A24;
   }
 }
 * { box-sizing: border-box; }
@@ -42,7 +45,12 @@ header {
   text-decoration: none;
   letter-spacing: -0.01em;
 }
-.brand span { color: var(--accent); }
+.brand img { display: block; height: 30px; width: auto; }
+@media (prefers-color-scheme: dark) {
+  /* the green wordmark needs a light chip to stay readable on dark backgrounds */
+  .brand img { background: #FBF6EC; border-radius: 8px; padding: 4px 8px; height: 38px; }
+}
+.card { border-left: 4px solid var(--gold); }
 nav a {
   color: var(--muted);
   text-decoration: none;
