@@ -28,6 +28,8 @@ interface ReminderListProps {
   chatLayout?: boolean;
   onToggleTodo?: (reminderId: string, index: number) => void;
   onTogglePriority?: (reminderId: string) => void;
+  /** Home-screen card style */
+  richCards?: boolean;
   // Drag-and-drop onto other things on the page (Favorites folders). Any element
   // marked data-drop-target="<id>" becomes a place a dragged nudge can be dropped.
   allowReorder?: boolean;
@@ -63,6 +65,7 @@ export function ReminderList({
   chatLayout,
   onToggleTodo,
   onTogglePriority,
+  richCards,
   allowReorder = true,
   dropTargets,
   onDragActiveChange,
@@ -409,6 +412,7 @@ export function ReminderList({
             folderOptions={folderOptions}
             onToggleTodo={onToggleTodo}
             onTogglePriority={onTogglePriority}
+            rich={richCards}
             muted={muted}
             flipped={chatLayout && sentByMe}
             dragHandleProps={

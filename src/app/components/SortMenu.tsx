@@ -6,7 +6,7 @@ export type SortKey = 'custom' | 'date' | 'sender' | 'category';
 export type SortDir = 'asc' | 'desc';
 export interface SortSetting { key: SortKey; dir: SortDir }
 
-const CATEGORY_LABELS: Record<ReminderType, string> = {
+export const CATEGORY_LABELS: Record<ReminderType, string> = {
   website: 'Website',
   music: 'Music',
   video: 'Video',

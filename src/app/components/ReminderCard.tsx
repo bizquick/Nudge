@@ -3,6 +3,7 @@ import { useState } from 'react';
 import type { Reminder, Message } from '../App';
 import type { Folder } from './FolderBar';
 import { Avatar } from './Avatar';
+import { CATEGORY_LABELS } from './SortMenu';
 
 // lucide-react doesn't have a literal money-bag glyph, so this renders the
 // emoji instead, matching the one used in the send/compose screen.
@@ -37,6 +38,27 @@ interface ReminderCardProps {
   onTogglePriority?: (reminderId: string) => void;
   /** You've silenced notifications for this nudge */
   muted?: boolean;
+  /** Home-screen style: big preview tile, plus who/when/what on a second line */
+  rich?: boolean;
+}
+
+// "now", "5m ago", "2h ago", "Tue", "Sep 3"
+function timeAgo(date: Date) {
+  const mins = Math.floor((Date.now() - date.getTime()) / 60000);
+  if (mins < 1) return 'now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  if (hours < 24 * 6) return date.toLocaleDateString(undefined, { weekday: 'short' });
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+function domainOf(url: string) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return null;
+  }
 }
 
 // Lets a favorited nudge be filed into one of your Favorites folders
@@ -66,7 +88,8 @@ export function ReminderCard({
   flipped,
   onToggleTodo,
   onTogglePriority,
-  muted
+  muted,
+  rich
 }: ReminderCardProps) {
   const todos = reminder.todoItems;
   const todosDone = todos ? todos.filter(t => t.done).length : 0;
@@ -178,10 +201,12 @@ export function ReminderCard({
   return (
     // Selected = the card's own border turns orange (not an outer ring, which
     // neighboring elements and the scroll area's edges could cover up)
-    <div className={`rounded-xl shadow-sm border-2 transition-all ${
+    <div className={`${rich ? 'rounded-2xl' : 'rounded-xl'} shadow-sm border-2 transition-all ${
       isSelected
         ? 'border-orange-400'
-        : reminder.checkedOut
+        : rich && reminder.prioritizedAt && !reminder.checkedOut
+          ? 'border-orange-300 !bg-orange-50'
+          : reminder.checkedOut
           ? 'border-green-500'
           : fromMe
             ? 'border-orange-200'
@@ -189,7 +214,7 @@ export function ReminderCard({
               ? 'border-sky-200'
               : 'border-stone-200 hover:border-stone-300'
     } ${reminder.checkedOut ? 'bg-green-100' : fromMe ? 'bg-orange-50' : sentByMe ? 'bg-sky-50' : 'bg-white'}`}>
-      {dragHandleProps && (
+      {dragHandleProps && !rich && (
         <div
           {...dragHandleProps}
           className="flex items-center justify-center py-2.5 cursor-grab active:cursor-grabbing hover:bg-stone-50 rounded-t-xl transition-colors"
@@ -202,7 +227,43 @@ export function ReminderCard({
         className={`cursor-pointer transition-all ${isSelected ? 'p-4 sm:p-5' : 'p-3 sm:p-4'}`}
         onClick={() => onSelect(reminder.id)}
       >
-        {!isSelected ? (
+        {!isSelected && rich ? (
+          <div className="flex items-center gap-3">
+            {/* Big tile: the link's preview image, or the category / to-do icon */}
+            <div className={`relative w-[52px] h-[52px] rounded-xl shrink-0 overflow-hidden flex items-center justify-center ${
+              reminder.previewImage ? '' : todos ? 'bg-stone-100 text-stone-600' : Icon && reminder.type ? colors[reminder.type] : 'bg-stone-100 text-stone-500'
+            }`}>
+              {reminder.previewImage ? (
+                <img src={reminder.previewImage} alt="" className="w-full h-full object-cover" />
+              ) : todos ? (
+                <ListChecks className="w-6 h-6" />
+              ) : Icon && reminder.type ? (
+                <Icon className="w-6 h-6" />
+              ) : (
+                <MessageCircle className="w-6 h-6" />
+              )}
+              {hasUnreadMessages && (
+                <div className="absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-orange-600 border-2 border-white" aria-label="New message"></div>
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              <h3 className="text-[15px] font-medium truncate">
+                {reminder.prioritizedAt && <span className="mr-1.5" title="Priority">🤯</span>}
+                {displayText}
+              </h3>
+              <p className="text-xs text-stone-500 truncate flex items-center gap-1">
+                <span className="truncate">
+                  {[
+                    isGroup && reminder.groupName ? reminder.groupName : reminder.sender === currentUser ? 'You' : reminder.sender,
+                    timeAgo(reminder.createdAt),
+                    todos ? `To-do ${todosDone}/${todos.length}` : reminder.url ? domainOf(reminder.url) : reminder.type ? CATEGORY_LABELS[reminder.type] : null,
+                  ].filter(Boolean).join(' · ')}
+                </span>
+                {muted && <BellOff className="w-3 h-3 text-stone-400 shrink-0" aria-label="Silenced" />}
+              </p>
+            </div>
+          </div>
+        ) : !isSelected ? (
           /* Collapsed view — single clean centered row, no checkbox yet */
           <div className={`flex items-center gap-3 ${flipped ? 'flex-row-reverse' : ''}`}>
             {reminder.previewImage ? (
@@ -476,7 +537,7 @@ export function ReminderCard({
 
       {/* Reactions Section - Only show when expanded */}
       {isSelected && (
-        <div className="border-t border-stone-200 px-5 py-3 bg-stone-50 rounded-b-[10px]">
+        <div className={`border-t border-stone-200 px-5 py-3 bg-stone-50 ${rich ? 'rounded-b-[14px]' : 'rounded-b-[10px]'}`}>
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-2 flex-wrap">
               {/* Existing Reactions */}

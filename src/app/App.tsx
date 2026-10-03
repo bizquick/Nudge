@@ -976,6 +976,122 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [exploreSeed, publicReminders.map(r => r.id).join(',')]);
 
+  // ---- Home screen pieces ----
+  const hour = new Date().getHours();
+  const greeting = hour >= 5 && hour < 12 ? 'Good morning' : hour >= 12 && hour < 17 ? 'Good afternoon' : 'Good evening';
+  const unreadPriorityCount = inboxReminders.filter(r => r.prioritizedAt && !r.checkedOut && !r.archived).length;
+
+  // One Home list (rich cards). Unread uses several of these — one per section.
+  const renderHomeList = (list: Reminder[], emptyMessage?: string) => (
+            <ReminderList
+              richCards
+              reminders={list}
+              viewType="received"
+              currentUser={currentUser}
+              messages={messages}
+              selectedId={expandedId}
+              onSelectId={setExpandedId}
+              onToggleCheckedOut={handleToggleCheckedOut}
+              onArchive={handleArchive}
+              onAddMessage={handleAddMessage}
+              onToggleFavorite={handleToggleFavorite}
+              onUpdateTitle={handleUpdateTitle}
+              onForward={setForwardingReminder}
+              onToggleReaction={handleToggleReaction}
+              onToggleTodo={handleToggleTodo}
+              onTogglePriority={handleTogglePriority}
+              // Favorites can always be held and dragged (to file into a folder); rearranging
+              // by dropping between cards only happens in Custom order
+              reorderable={sortSettings[allMessagesFilter].key === 'custom' || (allMessagesFilter === 'favorited' && foldersReady)}
+              allowReorder={sortSettings[allMessagesFilter].key === 'custom'}
+              dropTargets={allMessagesFilter === 'favorited' && foldersReady}
+              onDragActiveChange={setFavoriteDragging}
+              onDropHover={setDropFolder}
+              onDropOnTarget={handleDropIntoFolder}
+              onReorder={handleReorderUnread}
+              emptyMessage={emptyMessage ?? (
+                allMessagesFilter === 'unread'
+                  ? "You're all caught up. New nudges from friends will show up here."
+                  : allMessagesFilter === 'archived'
+                    ? 'Nothing archived. Nudges you archive will wait here.'
+                    : activeFolder
+                      ? 'This folder is empty. Go to All, then hold a favorite and drag it onto this folder.'
+                      : 'No favorites yet. Open a nudge and tap the star to save it here.'
+              )}
+              folderOptions={allMessagesFilter === 'favorited' && foldersReady
+                ? { folders, folderOf: (id) => folderOfReminder[id] ?? null, onMove: handleMoveToFolder }
+                : undefined}
+            />
+  );
+
+  const isToday = (d: Date) => d.toDateString() === new Date().toDateString();
+
+  // Unread: "New from" bubbles, then Priority / Today / Earlier sections
+  const renderUnreadHome = () => {
+    const list = displayedReminders;
+    if (list.length === 0) {
+      return (
+        <div className="text-center pt-16 pb-8 px-6">
+          <div className="text-5xl mb-3" aria-hidden="true">🎉</div>
+          <p className="text-lg text-stone-800">You're all caught up</p>
+          <p className="text-sm text-stone-500 mt-1">New nudges from friends will show up here.</p>
+          <button
+            onClick={() => setMobileTab('popular')}
+            className="mt-5 px-5 py-2.5 rounded-full bg-orange-600 text-white text-sm active:bg-orange-700"
+          >
+            Explore Popular
+          </button>
+        </div>
+      );
+    }
+
+    // Whose nudges are waiting, newest first — tap a bubble to open that chat
+    const newFrom: { key: string; label: string; avatarName: string; open: string }[] = [];
+    [...inboxReminders]
+      .filter(r => !r.checkedOut && !r.archived && r.sender !== currentUser)
+      .sort((x, y) => y.createdAt.getTime() - x.createdAt.getTime())
+      .forEach(r => {
+        const groupKey = groupKeyFor(r);
+        const key = groupKey ? 'group:' + groupKey : 'contact:' + r.sender;
+        if (newFrom.some(n => n.key === key)) return;
+        const group = groupKey ? allGroups.find(g => g.key === groupKey) : null;
+        const label = group ? groupLabel(group) : r.sender;
+        newFrom.push({ key, label, avatarName: group ? label : r.sender, open: groupKey ? 'group:' + groupKey : r.sender });
+      });
+
+    const stillOpen = (r: Reminder) => !r.checkedOut || r.id === expandedId;
+    const priority = list.filter(r => r.prioritizedAt && stillOpen(r));
+    const rest = list.filter(r => !priority.includes(r));
+    const today = rest.filter(r => isToday(r.createdAt));
+    const earlier = rest.filter(r => !isToday(r.createdAt));
+    const sectionTitle = (text: string) => <p className="text-xs text-stone-500 mt-4 mb-1.5">{text}</p>;
+
+    return (
+      <>
+        {newFrom.length > 0 && (
+          <div className="mb-1">
+            <p className="text-xs text-stone-500 mb-2">New from</p>
+            <div className="-mx-4 px-4 flex gap-4 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {newFrom.map(n => (
+                <button key={n.key} onClick={() => selectSender(n.open)} className="shrink-0 w-[60px] flex flex-col items-center">
+                  <div className="rounded-full p-[2.5px] bg-orange-500">
+                    <div className="rounded-full p-[2px] bg-[#FEFBF6]">
+                      <Avatar name={n.avatarName} size={50} />
+                    </div>
+                  </div>
+                  <span className="mt-1 text-[11px] text-stone-700 truncate w-full text-center">{n.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {priority.length > 0 && <>{sectionTitle('🤯 Priority')}{renderHomeList(priority)}</>}
+        {today.length > 0 && <>{sectionTitle('Today')}{renderHomeList(today)}</>}
+        {earlier.length > 0 && <>{sectionTitle('Earlier')}{renderHomeList(earlier)}</>}
+      </>
+    );
+  };
+
   if (!authChecked) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-white">
@@ -1122,9 +1238,26 @@ export default function App() {
             )
           ) : (
             // Large left-aligned screen title, iOS style (the logo lives on the sign-in and loading screens)
-            <h1 className="tab-title pt-1 text-[30px] leading-tight text-stone-800">
-              {mobileTab === 'inbox' ? 'Home' : mobileTab === 'people' ? 'Nudges' : mobileTab === 'popular' ? 'Popular' : 'You'}
-            </h1>
+            mobileTab === 'inbox' ? (
+              // Home greets you by name, with a one-line summary of what's waiting
+              <div className="pt-1">
+                <h1 className="tab-title text-[28px] leading-tight text-stone-800">
+                  {greeting}, {currentUser.split(' ')[0]}
+                </h1>
+                <p className="text-sm text-stone-500 mt-0.5">
+                  {unreadCount === 0
+                    ? "You're all caught up"
+                    : [
+                        `${unreadCount} new nudge${unreadCount === 1 ? '' : 's'}`,
+                        unreadPriorityCount ? `${unreadPriorityCount} priority` : null,
+                      ].filter(Boolean).join(' · ')}
+                </p>
+              </div>
+            ) : (
+              <h1 className="tab-title pt-1 text-[30px] leading-tight text-stone-800">
+                {mobileTab === 'people' ? 'Nudges' : mobileTab === 'popular' ? 'Popular' : 'You'}
+              </h1>
+            )
           )}
         </div>
 
@@ -1161,18 +1294,14 @@ export default function App() {
                 <button
                   key={filter}
                   onClick={() => selectFilter(filter)}
-                  className={`relative flex-1 px-2 py-2.5 rounded-lg text-sm transition-colors ${
+                  className={`px-4 py-1.5 rounded-full text-sm transition-colors ${
                     isActive
                       ? 'bg-orange-600 text-white'
-                      : 'bg-white border border-stone-300 text-stone-700 hover:bg-stone-50'
+                      : 'bg-white border border-stone-300 text-stone-600 hover:bg-stone-50'
                   }`}
                 >
                   {labels[filter]}
-                  {filter === 'unread' && unreadCount > 0 && (
-                    <span className={`absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] rounded-full flex items-center justify-center px-1 border-2 text-[10px] leading-none ${isActive ? 'bg-white text-orange-600 border-orange-600' : 'bg-orange-600 text-white border-white'}`}>
-                      {unreadCount}
-                    </span>
-                  )}
+                  {filter === 'unread' && unreadCount > 0 && <span className="ml-1.5 opacity-80">{unreadCount}</span>}
                 </button>
               );
             })}
@@ -1229,44 +1358,7 @@ export default function App() {
             <div className="flex justify-end -mr-1 mb-1">
               <SortMenu value={sortSettings[allMessagesFilter]} onChange={(s) => changeSort(allMessagesFilter, s)} />
             </div>
-            <ReminderList
-              reminders={displayedReminders}
-              viewType="received"
-              currentUser={currentUser}
-              messages={messages}
-              selectedId={expandedId}
-              onSelectId={setExpandedId}
-              onToggleCheckedOut={handleToggleCheckedOut}
-              onArchive={handleArchive}
-              onAddMessage={handleAddMessage}
-              onToggleFavorite={handleToggleFavorite}
-              onUpdateTitle={handleUpdateTitle}
-              onForward={setForwardingReminder}
-              onToggleReaction={handleToggleReaction}
-              onToggleTodo={handleToggleTodo}
-              onTogglePriority={handleTogglePriority}
-              // Favorites can always be held and dragged (to file into a folder); rearranging
-              // by dropping between cards only happens in Custom order
-              reorderable={sortSettings[allMessagesFilter].key === 'custom' || (allMessagesFilter === 'favorited' && foldersReady)}
-              allowReorder={sortSettings[allMessagesFilter].key === 'custom'}
-              dropTargets={allMessagesFilter === 'favorited' && foldersReady}
-              onDragActiveChange={setFavoriteDragging}
-              onDropHover={setDropFolder}
-              onDropOnTarget={handleDropIntoFolder}
-              onReorder={handleReorderUnread}
-              emptyMessage={
-                allMessagesFilter === 'unread'
-                  ? "You're all caught up. New nudges from friends will show up here."
-                  : allMessagesFilter === 'archived'
-                    ? 'Nothing archived. Nudges you archive will wait here.'
-                    : activeFolder
-                      ? 'This folder is empty. Go to All, then hold a favorite and drag it onto this folder.'
-                      : 'No favorites yet. Open a nudge and tap the star to save it here.'
-              }
-              folderOptions={allMessagesFilter === 'favorited' && foldersReady
-                ? { folders, folderOf: (id) => folderOfReminder[id] ?? null, onMove: handleMoveToFolder }
-                : undefined}
-            />
+            {allMessagesFilter === 'unread' ? renderUnreadHome() : renderHomeList(displayedReminders)}
             </>
           ) : mobileTab === 'popular' ? (
             <div>
