@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Globe, Music, Video, Type as TypeIcon, Sparkles, UtensilsCrossed, Lightbulb, Send, X, Paperclip, Loader2, Link2, Bookmark, ListChecks, Plus } from 'lucide-react';
 import type { ReminderType, NewNudge } from '../App';
 import { supabase } from '../utils/supabase/client';
@@ -65,6 +65,27 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
   const matches = knownRecipients.filter(u =>
     u.toLowerCase().includes(recipientQuery.toLowerCase()) && !selectedRecipients.includes(u)
   );
+
+  // Someone you haven't nudged before: if what you typed is their exact Nudge name,
+  // the server confirms it. (Nobody can browse or search the full list of users.)
+  const [exactMatch, setExactMatch] = useState<string | null>(null);
+  const [lookingUp, setLookingUp] = useState(false);
+  useEffect(() => {
+    setExactMatch(null);
+    const q = recipientQuery.trim();
+    if (q.length < 2 || knownRecipients.some(u => u.toLowerCase() === q.toLowerCase())) return;
+    setLookingUp(true);
+    const timer = setTimeout(async () => {
+      const { data, error } = await supabase.rpc('find_profile', { p_name: q });
+      setLookingUp(false);
+      if (error) {
+        console.warn('Name lookup unavailable:', error);
+        return;
+      }
+      if (typeof data === 'string' && data !== currentUser && !selectedRecipients.includes(data)) setExactMatch(data);
+    }, 350);
+    return () => { clearTimeout(timer); setLookingUp(false); };
+  }, [recipientQuery]);
 
   // "Save to My Nudges" adds you to the recipient list so the nudge also shows
   // in My Nudges, but you don't count toward making it a group.
@@ -328,19 +349,29 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
 
             {recipientQuery && (
               <div className="mt-2 border border-stone-200 rounded-lg overflow-hidden max-h-40 overflow-y-auto">
-                {matches.length > 0 ? (
-                  matches.map(u => (
-                    <button
-                      key={u}
-                      type="button"
-                      onClick={() => addRecipient(u)}
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-stone-50 border-b border-stone-100 last:border-b-0"
-                    >
-                      {u}
-                    </button>
-                  ))
-                ) : (
-                  <p className="px-3 py-2 text-xs text-stone-500">No account with that name yet.</p>
+                {matches.map(u => (
+                  <button
+                    key={u}
+                    type="button"
+                    onClick={() => addRecipient(u)}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-stone-50 border-b border-stone-100 last:border-b-0"
+                  >
+                    {u}
+                  </button>
+                ))}
+                {exactMatch && (
+                  <button
+                    type="button"
+                    onClick={() => addRecipient(exactMatch)}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-stone-50 border-b border-stone-100 last:border-b-0"
+                  >
+                    {exactMatch} <span className="text-xs text-stone-400">· new contact</span>
+                  </button>
+                )}
+                {matches.length === 0 && !exactMatch && (
+                  <p className="px-3 py-2 text-xs text-stone-500">
+                    {lookingUp ? 'Looking…' : "No one by that name. To add someone new, type their exact Nudge name, or ask them for their Nudge link."}
+                  </p>
                 )}
               </div>
             )}

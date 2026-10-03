@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Send me a nudge</title>
+  <meta name="description" content="Send links, music, and videos to the people you know on Nudge.">
+  <meta property="og:title" content="Send me a nudge">
+  <meta property="og:description" content="Tap to open Nudge and send me something to check out.">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main>
+    <header><a class="brand" href="/"><span>n</span>udge</a></header>
+
+    <h1 id="headline">Send me a nudge</h1>
+    <p class="tagline">Because "I'll check it out later" is a lie.</p>
+
+    <div class="card">
+      <p><strong>Have Nudge?</strong> Open this link on your iPhone (from Messages or Notes) and it opens right in the app, ready to send.</p>
+      <p id="name-line" hidden>Or open Nudge, tap the orange button, and type <strong id="name"></strong> in the To line.</p>
+    </div>
+
+    <div class="card">
+      <p><strong>New to Nudge?</strong> It's in early testing on iPhone. <span id="ask">Ask the person who sent you this link for an invite.</span></p>
+    </div>
+
+    <footer><a href="/support">Support</a> &middot; <a href="/privacy">Privacy Policy</a></footer>
+  </main>
+  <script>
+    // Show whose invite this is, from ?u=Name in the link
+    var name = new URLSearchParams(location.search).get('u');
+    if (name) {
+      name = name.slice(0, 60);
+      document.getElementById('headline').textContent = 'Send ' + name + ' a nudge';
+      document.getElementById('name').textContent = name;
+      document.getElementById('name-line').hidden = false;
+      document.getElementById('ask').textContent = 'Ask ' + name + ' for an invite.';
+      document.title = 'Send ' + name + ' a nudge';
+    }
+  </script>
+</body>
+</html>

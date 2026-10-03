@@ -7,13 +7,15 @@ import { SwipeRow } from './components/SwipeRow';
 import { Avatar, AvatarContext } from './components/Avatar';
 import { AvatarPicker } from './components/AvatarPicker';
 import { AuthScreen } from './components/AuthScreen';
-import { Send, Archive, LogOut, Inbox as InboxIcon, Users, User, ChevronLeft, ChevronDown, TrendingUp, Pencil, BellOff, Bell } from 'lucide-react';
+import { Send, Archive, LogOut, Share2, Inbox as InboxIcon, Users, User, ChevronLeft, ChevronDown, TrendingUp, Pencil, BellOff, Bell } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { ImageWithFallback } from './components/figma/ImageWithFallback';
 import nudgeLogo from '../imports/image-3.png';
 import nIconTonal from '../imports/n-icon-tonal.png';
 import { supabase } from './utils/supabase/client';
 import { registerPush, unregisterPush, setBadge } from './utils/push';
+import { App as CapacitorApp } from '@capacitor/app';
+import { Share } from '@capacitor/share';
 
 export type ReminderType = 'website' | 'music' | 'video' | 'text' | 'unnecessary' | 'interesting' | 'food' | 'lifehack';
 
@@ -233,6 +235,8 @@ export default function App() {
   const [avatars, setAvatars] = useState<Record<string, string>>({});
   const [chatNotes, setChatNotes] = useState<Record<string, string>>({});
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
+  // Someone's invite link (nudgem.app/add?u=Name) was opened — start a nudge to them once signed in
+  const [pendingInvite, setPendingInvite] = useState<string | null>(null);
   const [editingNote, setEditingNote] = useState(false);
   const [noteDraft, setNoteDraft] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
@@ -288,22 +292,20 @@ export default function App() {
     setMessages([]);
   };
 
-  const [knownUsers, setKnownUsers] = useState<string[]>([]);
   const [hiddenContacts, setHiddenContacts] = useState<{ name: string; status: 'archived' | 'deleted' }[]>([]);
   const [showArchivedContacts, setShowArchivedContacts] = useState(false);
 
   const loadData = useCallback(async () => {
-    const [{ data: reminderRows, error: reminderErr }, { data: reactionRows, error: reactionErr }, { data: messageRows, error: messageErr }, { data: profileRows, error: profileErr }, { data: contactPrefRows, error: contactPrefErr }, { data: voteRows, error: voteErr }] = await Promise.all([
+    const [{ data: reminderRows, error: reminderErr }, { data: reactionRows, error: reactionErr }, { data: messageRows, error: messageErr }, { data: contactPrefRows, error: contactPrefErr }, { data: voteRows, error: voteErr }] = await Promise.all([
       supabase.from('reminders').select('*').order('created_at', { ascending: false }),
       supabase.from('reminder_reactions').select('*'),
       supabase.from('messages').select('*').order('created_at', { ascending: true }),
-      supabase.from('profiles').select('display_name').order('display_name', { ascending: true }),
       supabase.from('contact_prefs').select('contact_name, status'),
       supabase.from('reminder_votes').select('*')
     ]);
 
-    if (reminderErr || reactionErr || messageErr || profileErr || contactPrefErr || voteErr) {
-      console.error(reminderErr || reactionErr || messageErr || profileErr || contactPrefErr || voteErr);
+    if (reminderErr || reactionErr || messageErr || contactPrefErr || voteErr) {
+      console.error(reminderErr || reactionErr || messageErr || contactPrefErr || voteErr);
       setLoadError("Couldn't reach the server. Check your connection and Supabase setup.");
       return;
     }
@@ -312,7 +314,6 @@ export default function App() {
     const voteMap = groupVotes(voteRows || []);
     setReminders((reminderRows || []).map(row => rowToReminder(row, reactionMap[row.id] || [], voteMap[row.id] || [])));
     setMessages((messageRows || []).map(rowToMessage));
-    setKnownUsers((profileRows || []).map(p => p.display_name));
     setHiddenContacts((contactPrefRows || []).map(c => ({ name: c.contact_name, status: c.status as 'archived' | 'deleted' })));
     setLoadError(null);
 
@@ -335,6 +336,7 @@ export default function App() {
 
     const [{ data: favRows, error: favErr }, { data: avatarRows, error: avatarErr }, { data: noteRows, error: noteErr }] = await Promise.all([
       supabase.from('user_favorites').select('reminder_id'),
+      // Only pictures of people you know come back (the database limits it)
       supabase.from('profiles').select('display_name, avatar').not('avatar', 'is', null),
       supabase.from('chat_notes').select('chat_key, note'),
     ]);
@@ -834,6 +836,12 @@ export default function App() {
     r.sender === currentUser || r.recipients.includes(currentUser)
   );
 
+  // "To" suggestions: only people you've already sent nudges to or received them from.
+  // Anyone else is found by typing their exact Nudge name (the server checks it).
+  const contacts = Array.from(new Set(allUserReminders.flatMap(r => [r.sender, ...r.recipients])))
+    .filter(name => name && name !== currentUser)
+    .sort((a, b) => a.localeCompare(b));
+
   // Home's Unread list: only nudges sent to you, plus ones you saved to My Nudges
   // (those list you as a recipient too) — not ones you only sent to others.
   const inboxReminders = reminders.filter(r => r.recipients.includes(currentUser));
@@ -960,6 +968,65 @@ export default function App() {
       setAllMessagesFilter('unread');
     });
   }, [currentUser]);
+
+  // Invite links open the app (iPhone "Universal Links"): read the name out of the link
+  useEffect(() => {
+    const handleUrl = (url: string) => {
+      try {
+        const link = new URL(url);
+        const name = link.searchParams.get('u');
+        if (link.pathname.replace(/\/$/, '').endsWith('/add') && name) setPendingInvite(name.trim().slice(0, 60));
+      } catch {
+        // not a link we understand
+      }
+    };
+    const listener = CapacitorApp.addListener('appUrlOpen', ({ url }) => handleUrl(url));
+    CapacitorApp.getLaunchUrl().then(launch => { if (launch?.url) handleUrl(launch.url); }).catch(() => {});
+    return () => { listener.then(l => l.remove()).catch(() => {}); };
+  }, []);
+
+  useEffect(() => {
+    if (!pendingInvite || !currentUser || dataLoading) return;
+    const name = pendingInvite;
+    setPendingInvite(null);
+    if (name.toLowerCase() === currentUser.toLowerCase()) {
+      toast("That's your own Nudge link — send it to a friend!");
+      return;
+    }
+    // Confirm the person exists (exact name), then open a new nudge addressed to them
+    supabase.rpc('find_profile', { p_name: name }).then(({ data, error }) => {
+      if (error || typeof data !== 'string') {
+        toast(`Couldn't find anyone named ${name} on Nudge`);
+        return;
+      }
+      setSelectedSender(null);
+      setQuickSendTo(data);
+    });
+  }, [pendingInvite, currentUser, dataLoading]);
+
+  // Share your link through Messages (or any app): opens Nudge for friends who have it
+  const handleShareLink = async () => {
+    if (!currentUser) return;
+    const url = `https://nudgem.app/add?u=${encodeURIComponent(currentUser)}`;
+    try {
+      await Share.share({
+        title: 'Send me a nudge',
+        text: `Send me a nudge! My Nudge name is ${currentUser}.`,
+        url,
+        dialogTitle: 'Share your Nudge link',
+      });
+    } catch (err) {
+      // Closing the share sheet without picking anything also lands here — only fall back if sharing isn't available
+      if (!String(err).toLowerCase().includes('cancel')) {
+        try {
+          await navigator.clipboard.writeText(url);
+          toast('Link copied — paste it into a message');
+        } catch {
+          toast(url);
+        }
+      }
+    }
+  };
 
   // Keep the red number on the app icon equal to your unread count
   useEffect(() => {
@@ -1596,6 +1663,19 @@ export default function App() {
                   </button>
                 </div>
               </div>
+              <div className="bg-white rounded-xl border border-stone-200 p-5">
+                <p className="text-base">Invite friends</p>
+                <p className="text-sm text-stone-500 mt-1">
+                  Send your Nudge link in Messages. Friends with Nudge tap it to open a new nudge already addressed to you.
+                </p>
+                <button
+                  onClick={handleShareLink}
+                  className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-orange-600 text-white active:bg-orange-700"
+                >
+                  <Share2 className="w-4 h-4" />
+                  Share my Nudge link
+                </button>
+              </div>
               <button
                 onClick={handleSignOut}
                 className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-stone-200 text-stone-700 hover:bg-stone-50 transition-colors"
@@ -1669,7 +1749,7 @@ export default function App() {
       {quickSendTo && (
         <QuickSendModal
           recipient={quickSendTo}
-          knownRecipients={knownUsers.filter(u => u !== currentUser)}
+          knownRecipients={contacts}
           currentUser={currentUser}
           onSubmit={handleAddReminder}
           onClose={() => setQuickSendTo(null)}
@@ -1688,7 +1768,7 @@ export default function App() {
         <QuickSendModal
           recipient=""
           initialRecipients={quickSendGroup}
-          knownRecipients={knownUsers.filter(u => u !== currentUser)}
+          knownRecipients={contacts}
           currentUser={currentUser}
           onSubmit={handleAddReminder}
           onClose={() => setQuickSendGroup(null)}
@@ -1698,7 +1778,7 @@ export default function App() {
       {showNewReminderModal && (
         <QuickSendModal
           recipient=""
-          knownRecipients={knownUsers.filter(u => u !== currentUser)}
+          knownRecipients={contacts}
           currentUser={currentUser}
           onSubmit={handleAddReminder}
           onClose={() => setShowNewReminderModal(false)}
@@ -1708,7 +1788,7 @@ export default function App() {
       {forwardingReminder && (
         <QuickSendModal
           recipient=""
-          knownRecipients={knownUsers.filter(u => u !== currentUser)}
+          knownRecipients={contacts}
           currentUser={currentUser}
           onSubmit={handleAddReminder}
           onClose={() => setForwardingReminder(null)}

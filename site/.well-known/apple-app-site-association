@@ -1,0 +1,12 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["M686VAWANX.com.brandonchirco.nudge"],
+        "components": [
+          { "/": "/add", "?": { "u": "*" }, "comment": "Invite links: open a new nudge to that person" }
+        ]
+      }
+    ]
+  }
+}
