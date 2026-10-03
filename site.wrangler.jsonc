@@ -1,0 +1,16 @@
+// Cloudflare settings for the nudgem.app website (the pages in site/).
+// Publish updates with:  npx wrangler deploy --config site.wrangler.jsonc
+{
+  "name": "nudgem-site",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./site",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "404-page"
+  },
+  "workers_dev": false,
+  "routes": [
+    { "pattern": "nudgem.app", "custom_domain": true },
+    { "pattern": "www.nudgem.app", "custom_domain": true }
+  ]
+}
