@@ -2,6 +2,7 @@ import { Globe, Music, Video, Type as TypeIcon, Sparkles, UtensilsCrossed, Light
 import { useState } from 'react';
 import type { Reminder, Message } from '../App';
 import type { Folder } from './FolderBar';
+import { Avatar } from './Avatar';
 
 // lucide-react doesn't have a literal money-bag glyph, so this renders the
 // emoji instead, matching the one used in the send/compose screen.
@@ -72,6 +73,8 @@ export function ReminderCard({
   const [showFolderMenu, setShowFolderMenu] = useState(false);
   // Saved to your own My Nudges — tinted light orange so you can tell it's from you
   const fromMe = reminder.sender === currentUser && reminder.recipients.includes(currentUser);
+  // Sent by you to other people (not just saved to My Nudges) — tinted light blue
+  const sentByMe = reminder.sender === currentUser && !fromMe;
   // Only people in a nudge can change it (mark read, favorite, archive) — on someone
   // else's public nudge in Popular those buttons are hidden, since they couldn't save.
   const isParticipant = reminder.sender === currentUser || reminder.recipients.includes(currentUser);
@@ -182,8 +185,10 @@ export function ReminderCard({
           ? 'border-green-500'
           : fromMe
             ? 'border-orange-200'
-            : 'border-stone-200 hover:border-stone-300'
-    } ${reminder.checkedOut ? 'bg-green-100' : fromMe ? 'bg-orange-50' : 'bg-white'}`}>
+            : sentByMe
+              ? 'border-sky-200'
+              : 'border-stone-200 hover:border-stone-300'
+    } ${reminder.checkedOut ? 'bg-green-100' : fromMe ? 'bg-orange-50' : sentByMe ? 'bg-sky-50' : 'bg-white'}`}>
       {dragHandleProps && (
         <div
           {...dragHandleProps}
@@ -229,12 +234,8 @@ export function ReminderCard({
                 ) : (
                   <div className="relative w-8 h-8">
                     {otherParticipants.slice(0, 2).map((p, i) => (
-                      <div
-                        key={p}
-                        className="absolute w-6 h-6 rounded-full bg-gradient-to-br from-amber-400 to-rose-500 flex items-center justify-center text-white text-[9px] border-2 border-white"
-                        style={{ left: i * 8, top: i === 1 ? 6 : 0, zIndex: 2 - i }}
-                      >
-                        {p[0]?.toUpperCase()}
+                      <div key={p} className="absolute rounded-full border-2 border-white" style={{ left: i * 8, top: i === 1 ? 6 : 0, zIndex: 2 - i }}>
+                        <Avatar name={p} size={20} />
                       </div>
                     ))}
                     <div className="absolute w-5 h-5 rounded-full bg-stone-300 flex items-center justify-center text-white text-[8px] border-2 border-white" style={{ left: 16, top: 6, zIndex: 0 }}>
@@ -248,11 +249,7 @@ export function ReminderCard({
               </div>
             ) : (
               <div className="relative shrink-0">
-                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-400 to-rose-500 flex items-center justify-center text-white text-xs">
-                  {viewType === 'received'
-                    ? reminder.sender[0].toUpperCase()
-                    : reminder.recipients[0][0].toUpperCase()}
-                </div>
+                <Avatar name={viewType === 'received' ? reminder.sender : reminder.recipients[0]} size={32} />
                 {hasUnreadMessages && (
                   <div className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-orange-600 border-2 border-white"></div>
                 )}
@@ -300,12 +297,8 @@ export function ReminderCard({
                   )}
                   <div className="relative w-9 h-9 sm:w-10 sm:h-10">
                     {otherParticipants.slice(0, 2).map((p, i) => (
-                      <div
-                        key={p}
-                        className="absolute w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-gradient-to-br from-amber-400 to-rose-500 flex items-center justify-center text-white text-[10px] border-2 border-white"
-                        style={{ left: i * 10, top: i === 1 ? 8 : 0, zIndex: 2 - i }}
-                      >
-                        {p[0]?.toUpperCase()}
+                      <div key={p} className="absolute rounded-full border-2 border-white" style={{ left: i * 10, top: i === 1 ? 8 : 0, zIndex: 2 - i }}>
+                        <Avatar name={p} size={24} />
                       </div>
                     ))}
                     {otherParticipants.length > 2 && (
@@ -316,11 +309,8 @@ export function ReminderCard({
                   </div>
                 </div>
               ) : (
-                <div className={`${flipped ? 'mr-auto' : 'ml-auto'} w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-gradient-to-br from-amber-400 to-rose-500 flex items-center justify-center text-white text-sm shrink-0`}>
-                  {viewType === 'received' 
-                    ? reminder.sender.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
-                    : reminder.recipients[0].split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
-                  }
+                <div className={flipped ? 'mr-auto' : 'ml-auto'}>
+                  <Avatar name={viewType === 'received' ? reminder.sender : reminder.recipients[0]} size={38} />
                 </div>
               )}
             </div>

@@ -4,6 +4,8 @@ import { QuickSendModal } from './components/QuickSendModal';
 import { SortMenu, sortReminders, loadSortSetting, saveSortSetting, type SortSetting } from './components/SortMenu';
 import { FolderBar, type Folder } from './components/FolderBar';
 import { SwipeRow } from './components/SwipeRow';
+import { Avatar, AvatarContext } from './components/Avatar';
+import { AvatarPicker } from './components/AvatarPicker';
 import { AuthScreen } from './components/AuthScreen';
 import { Send, Archive, LogOut, Inbox as InboxIcon, Users, User, ChevronLeft, ChevronDown, TrendingUp, Pencil, BellOff, Bell } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
@@ -215,9 +217,24 @@ export default function App() {
     setSelectedSender(sender);
     setExpandedId(null);
     setEditingGroupName(false);
+    setEditingNote(false);
   };
 
-  const [reminders, setReminders] = useState<Reminder[]>([]);
+  const [rawReminders, setReminders] = useState<Reminder[]>([]);
+  // Your own favorites (null until loaded, or if the favorites table isn't set up yet —
+  // then the old shared "favorited" switch is used as a fallback)
+  const [favoriteIds, setFavoriteIds] = useState<Set<string> | null>(null);
+  // Each nudge as *you* see it: favorited means favorited by you, nobody else
+  const reminders = useMemo(
+    () => favoriteIds ? rawReminders.map(r => ({ ...r, favorited: favoriteIds.has(r.id) })) : rawReminders,
+    [rawReminders, favoriteIds]
+  );
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [avatars, setAvatars] = useState<Record<string, string>>({});
+  const [chatNotes, setChatNotes] = useState<Record<string, string>>({});
+  const [showAvatarPicker, setShowAvatarPicker] = useState(false);
+  const [editingNote, setEditingNote] = useState(false);
+  const [noteDraft, setNoteDraft] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -312,6 +329,21 @@ export default function App() {
       setFolderOfReminder(Object.fromEntries((folderItemRows || []).map(i => [i.reminder_id, i.folder_id])));
       setFoldersReady(true);
     }
+
+    const { data: { session } } = await supabase.auth.getSession();
+    setCurrentUserId(session?.user?.id ?? null);
+
+    const [{ data: favRows, error: favErr }, { data: avatarRows, error: avatarErr }, { data: noteRows, error: noteErr }] = await Promise.all([
+      supabase.from('user_favorites').select('reminder_id'),
+      supabase.from('profiles').select('display_name, avatar').not('avatar', 'is', null),
+      supabase.from('chat_notes').select('chat_key, note'),
+    ]);
+    if (favErr) console.warn('Personal favorites unavailable:', favErr);
+    else setFavoriteIds(new Set((favRows || []).map(f => f.reminder_id)));
+    if (avatarErr) console.warn('Pictures unavailable:', avatarErr);
+    else setAvatars(Object.fromEntries((avatarRows || []).map(a => [a.display_name, a.avatar])));
+    if (noteErr) console.warn('Chat descriptions unavailable:', noteErr);
+    else setChatNotes(Object.fromEntries((noteRows || []).map(n => [n.chat_key, n.note])));
 
     const { data: muteRows, error: muteErr } = await supabase.from('mutes').select('target');
     if (muteErr) console.warn('Mutes unavailable:', muteErr);
@@ -536,13 +568,62 @@ export default function App() {
     });
   };
 
+  // Favorites are personal: favoriting only adds it to *your* Favorites
   const handleToggleFavorite = async (id: string) => {
     const reminder = reminders.find(r => r.id === id);
     if (!reminder) return;
     const nextValue = !reminder.favorited;
-    setReminders(prev => prev.map(r => r.id === id ? { ...r, favorited: nextValue } : r));
-    const { error } = await supabase.from('reminders').update({ favorited: nextValue }).eq('id', id);
-    if (error) console.error(error);
+    if (!favoriteIds) {
+      // Favorites table not set up yet — fall back to the old shared switch
+      setReminders(prev => prev.map(r => r.id === id ? { ...r, favorited: nextValue } : r));
+      const { error } = await supabase.from('reminders').update({ favorited: nextValue }).eq('id', id);
+      if (error) console.error(error);
+      return;
+    }
+    setFavoriteIds(prev => {
+      const next = new Set(prev);
+      if (nextValue) next.add(id); else next.delete(id);
+      return next;
+    });
+    const { error } = nextValue
+      ? await supabase.from('user_favorites').upsert({ reminder_id: id }, { onConflict: 'owner_id,reminder_id' })
+      : await supabase.from('user_favorites').delete().match({ owner_id: currentUserId, reminder_id: id });
+    if (error) {
+      console.error(error);
+      toast('Could not update favorites');
+    }
+  };
+
+  // Your private short description of a chat, shown next to its name
+  const handleSaveChatNote = async (chatKey: string, note: string) => {
+    const trimmed = note.trim().slice(0, 80);
+    setChatNotes(prev => {
+      const next = { ...prev };
+      if (trimmed) next[chatKey] = trimmed; else delete next[chatKey];
+      return next;
+    });
+    const { error } = trimmed
+      ? await supabase.from('chat_notes').upsert({ chat_key: chatKey, note: trimmed, updated_at: new Date().toISOString() }, { onConflict: 'owner_id,chat_key' })
+      : await supabase.from('chat_notes').delete().match({ owner_id: currentUserId, chat_key: chatKey });
+    if (error) {
+      console.error(error);
+      toast('Could not save that description');
+    }
+  };
+
+  // Your picture: a photo address, an "emoji:…" pick, or null for initials
+  const handleSaveAvatar = async (value: string | null) => {
+    if (!currentUser || !currentUserId) return;
+    setAvatars(prev => {
+      const next = { ...prev };
+      if (value) next[currentUser] = value; else delete next[currentUser];
+      return next;
+    });
+    const { error } = await supabase.from('profiles').update({ avatar: value }).eq('id', currentUserId);
+    if (error) {
+      console.error(error);
+      toast('Could not save your picture');
+    }
   };
 
   const handleReorderPopular = async (orderedIds: string[]) => {
@@ -806,6 +887,10 @@ export default function App() {
 
   const selectedGroupKey = selectedSender?.startsWith('group:') ? selectedSender.slice('group:'.length) : null;
   const selectedGroupMeta = selectedGroupKey ? allGroups.find(g => g.key === selectedGroupKey) : null;
+  // Key used for your private description of the open chat (none for My Nudges)
+  const selectedChatKey = !selectedSender || selectedSender === 'My Reminders'
+    ? null
+    : selectedGroupKey ? 'group:' + selectedGroupKey : 'contact:' + selectedSender;
 
   const displayedReminders = (() => {
     if (selectedSender === 'My Reminders') {
@@ -820,7 +905,7 @@ export default function App() {
         return withPrioritiesFirst(sortReminders(inboxReminders.filter(r => (!r.checkedOut || r.id === expandedId) && !r.archived), sort), expandedId, false);
       }
       if (allMessagesFilter === 'favorited') {
-        const favorites = allRemindersForUser.filter(r => r.favorited && !r.archived);
+        const favorites = allRemindersForUser.filter(r => r.favorited);
         return sortReminders(activeFolder ? favorites.filter(r => folderOfReminder[r.id] === activeFolder) : favorites, sort);
       }
       if (allMessagesFilter === 'archived') return sortReminders(allRemindersForUser.filter(r => r.archived), sort);
@@ -894,7 +979,7 @@ export default function App() {
   if (!authChecked) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-white">
-        <ImageWithFallback src={nudgeLogo} alt="Nudge" className="h-16 w-auto object-contain" />
+        <ImageWithFallback src={nudgeLogo} alt="Nudge" className="h-[300px] w-auto object-contain -my-[90px]" />
         <p className="text-stone-400 text-sm">Loading…</p>
       </div>
     );
@@ -907,13 +992,14 @@ export default function App() {
   if (dataLoading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-white">
-        <ImageWithFallback src={nudgeLogo} alt="Nudge" className="h-16 w-auto object-contain" />
+        <ImageWithFallback src={nudgeLogo} alt="Nudge" className="h-[300px] w-auto object-contain -my-[90px]" />
         <p className="text-stone-400 text-sm">Loading your nudges…</p>
       </div>
     );
   }
 
   return (
+    <AvatarContext.Provider value={avatars}>
     <div
       className="flex flex-col overflow-hidden"
       style={{ height: '100%', width: '100%', background: '#FEFBF6', paddingTop: 'env(safe-area-inset-top)' }}
@@ -957,53 +1043,83 @@ export default function App() {
         {/* Top Bar */}
         <div className="mb-3 flex items-center gap-2">
           {selectedSender ? (
-            <>
-              <button
-                onClick={() => selectSender(null)}
-                className="p-2 -ml-2 rounded-lg hover:bg-stone-100 transition-colors shrink-0"
-                title="Back"
+            selectedGroupKey && editingGroupName ? (
+              <form
+                className="flex-1 flex items-center gap-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleUpdateGroupName(selectedGroupKey, groupNameDraft);
+                  setEditingGroupName(false);
+                }}
               >
-                <ChevronLeft className="w-5 h-5 text-stone-700" />
-              </button>
-              {selectedGroupKey ? (
-                editingGroupName ? (
-                  <form
-                    className="flex-1 flex items-center gap-2"
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      handleUpdateGroupName(selectedGroupKey, groupNameDraft);
-                      setEditingGroupName(false);
-                    }}
-                  >
-                    <input
-                      autoFocus
-                      value={groupNameDraft}
-                      onChange={(e) => setGroupNameDraft(e.target.value)}
-                      placeholder="Name this group"
-                      className="flex-1 min-w-0 text-lg border-b-2 border-orange-500 focus:outline-none bg-transparent"
-                    />
-                    <button type="submit" className="text-orange-600 text-sm shrink-0">Save</button>
-                  </form>
-                ) : (
+                <input
+                  autoFocus
+                  value={groupNameDraft}
+                  onChange={(e) => setGroupNameDraft(e.target.value)}
+                  placeholder="Name this group"
+                  className="flex-1 min-w-0 text-lg border-b-2 border-orange-500 focus:outline-none bg-transparent"
+                />
+                <button type="submit" className="text-orange-600 text-sm shrink-0">Save</button>
+              </form>
+            ) : (
+              <>
+                {/* The arrow AND the name are one big back button — easier to hit */}
+                <button
+                  onClick={() => selectSender(null)}
+                  className="-ml-2 pl-1 pr-2 py-1.5 rounded-lg hover:bg-stone-100 active:bg-stone-200 transition-colors flex items-center gap-1.5 min-w-0 max-w-[60%] shrink-0"
+                  title="Back"
+                >
+                  <ChevronLeft className="w-6 h-6 text-stone-700 shrink-0" />
+                  {!selectedGroupKey && selectedSender !== 'My Reminders' && <Avatar name={selectedSender} size={28} />}
+                  <h1 className="text-lg truncate">
+                    {selectedGroupKey
+                      ? (selectedGroupMeta?.groupName || selectedGroupMeta?.participants.join(', ') || 'Group')
+                      : selectedSender === 'My Reminders' ? 'My Nudges' : selectedSender}
+                  </h1>
+                </button>
+                {selectedGroupKey && (
                   <button
                     onClick={() => {
                       setGroupNameDraft(selectedGroupMeta?.groupName || '');
                       setEditingGroupName(true);
                     }}
-                    className="flex-1 min-w-0 flex items-center gap-2 text-left"
+                    className="p-1.5 -ml-1 text-stone-400 hover:text-stone-600 shrink-0"
+                    title="Rename group"
                   >
-                    <h1 className="text-lg truncate">
-                      {selectedGroupMeta?.groupName || selectedGroupMeta?.participants.join(', ') || 'Group'}
-                    </h1>
-                    <Pencil className="w-3.5 h-3.5 text-stone-400 shrink-0" />
+                    <Pencil className="w-3.5 h-3.5" />
                   </button>
-                )
-              ) : (
-                <h1 className="text-lg truncate flex-1">
-                  {selectedSender === 'My Reminders' ? 'My Nudges' : selectedSender}
-                </h1>
-              )}
-            </>
+                )}
+                {/* Your own short description of this chat, to the right of the name */}
+                {selectedChatKey && (editingNote ? (
+                  <form
+                    className="flex-1 min-w-0 flex items-center gap-2"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      handleSaveChatNote(selectedChatKey, noteDraft);
+                      setEditingNote(false);
+                    }}
+                  >
+                    <input
+                      autoFocus
+                      value={noteDraft}
+                      onChange={(e) => setNoteDraft(e.target.value)}
+                      onBlur={() => { handleSaveChatNote(selectedChatKey, noteDraft); setEditingNote(false); }}
+                      maxLength={80}
+                      placeholder="e.g. college roommate"
+                      className="flex-1 min-w-0 text-sm border-b border-orange-400 focus:outline-none bg-transparent"
+                    />
+                  </form>
+                ) : (
+                  <button
+                    onClick={() => { setNoteDraft(chatNotes[selectedChatKey] ?? ''); setEditingNote(true); }}
+                    className={`flex-1 min-w-0 text-left text-sm truncate ${chatNotes[selectedChatKey] ? 'text-stone-500 italic' : 'text-stone-400'}`}
+                    title="Edit description"
+                  >
+                    {chatNotes[selectedChatKey] ?? '+ Add description'}
+                  </button>
+                ))}
+              </>
+            )
           ) : (
             // Large left-aligned screen title, iOS style (the logo lives on the sign-in and loading screens)
             <h1 className="tab-title pt-1 text-[30px] leading-tight text-stone-800">
@@ -1092,7 +1208,7 @@ export default function App() {
           ) : mobileTab === 'inbox' ? (
             <>
             {allMessagesFilter === 'favorited' && foldersReady && (() => {
-              const favorites = allRemindersForUser.filter(r => r.favorited && !r.archived);
+              const favorites = allRemindersForUser.filter(r => r.favorited);
               const counts: Record<string, number> = {};
               favorites.forEach(r => { const f = folderOfReminder[r.id]; if (f) counts[f] = (counts[f] ?? 0) + 1; });
               return (
@@ -1219,12 +1335,10 @@ export default function App() {
                   onClick={() => selectSender('My Reminders')}
                   className="w-full px-3 py-3 flex items-center gap-3 hover:bg-stone-50 active:bg-stone-100 transition-colors rounded-xl"
                 >
-                  <div className="w-11 h-11 rounded-full bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-white text-sm shrink-0">
-                    Me
-                  </div>
+                  <Avatar name={currentUser} size={48} />
                   <div className="text-left flex-1 min-w-0">
-                    <p className="text-sm">My Nudges</p>
-                    <p className="text-xs text-stone-500">{myOwnReminders.length} nudges</p>
+                    <p className="text-base">My Nudges</p>
+                    <p className="text-sm text-stone-500">{myOwnReminders.length} nudges</p>
                   </div>
                 </button>
               )}
@@ -1246,7 +1360,6 @@ export default function App() {
                   })
                   .length;
 
-                const initials = contact.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
 
                 return (
                   <SwipeRow key={contact} actions={chatSwipeActions('contact:' + contact, contact, contact)}>
@@ -1255,8 +1368,8 @@ export default function App() {
                         onClick={() => selectSender(contact)}
                         className="flex-1 min-w-0 px-3 py-3 flex items-center gap-3 active:bg-stone-100 transition-colors rounded-xl text-left"
                       >
-                        <div className="w-11 h-11 rounded-full bg-gradient-to-br from-amber-400 to-rose-500 flex items-center justify-center text-white text-sm shrink-0 relative">
-                          {initials}
+                        <div className="relative shrink-0">
+                          <Avatar name={contact} size={48} />
                           {unreadCount > 0 && (
                             <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-orange-600 text-white text-[10px] flex items-center justify-center border-2 border-white">
                               {unreadCount}
@@ -1264,11 +1377,14 @@ export default function App() {
                           )}
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm truncate flex items-center gap-1.5">
+                          <p className="text-base truncate flex items-center gap-1.5">
                             <span className="truncate">{contact}</span>
-                            {mutes.has('contact:' + contact) && <BellOff className="w-3.5 h-3.5 text-stone-400 shrink-0" aria-label="Silenced" />}
+                            {mutes.has('contact:' + contact) && <BellOff className="w-4 h-4 text-stone-400 shrink-0" aria-label="Silenced" />}
                           </p>
-                          <p className="text-xs text-stone-500">{count} nudges</p>
+                          <p className="text-sm text-stone-500 truncate">
+                            {chatNotes['contact:' + contact] && <span className="italic">{chatNotes['contact:' + contact]} · </span>}
+                            {count} nudges
+                          </p>
                         </div>
                       </button>
                       {/* Silence and Archive live behind a swipe left */}
@@ -1317,11 +1433,14 @@ export default function App() {
                       )}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm truncate flex items-center gap-1.5">
+                      <p className="text-base truncate flex items-center gap-1.5">
                         <span className="truncate">{displayName}</span>
-                        {mutes.has('group:' + group.key) && <BellOff className="w-3.5 h-3.5 text-stone-400 shrink-0" aria-label="Silenced" />}
+                        {mutes.has('group:' + group.key) && <BellOff className="w-4 h-4 text-stone-400 shrink-0" aria-label="Silenced" />}
                       </p>
-                      <p className="text-xs text-stone-500">{group.count} nudges &middot; {group.participants.length + 1} people</p>
+                      <p className="text-sm text-stone-500 truncate">
+                        {chatNotes['group:' + group.key] && <span className="italic">{chatNotes['group:' + group.key]} · </span>}
+                        {group.count} nudges &middot; {group.participants.length + 1} people
+                      </p>
                     </div>
                   </button>
                   </SwipeRow>
@@ -1368,12 +1487,14 @@ export default function App() {
             /* You tab */
             <div className="space-y-4">
               <div className="bg-white rounded-xl border border-stone-200 p-5 flex items-center gap-4">
-                <div className="w-14 h-14 rounded-full bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-white text-xl shrink-0">
-                  {currentUser.charAt(0).toUpperCase()}
-                </div>
+                <button onClick={() => setShowAvatarPicker(true)} className="shrink-0" aria-label="Change your picture">
+                  <Avatar name={currentUser} size={64} />
+                </button>
                 <div className="min-w-0 flex-1">
                   <p className="truncate">{currentUser}</p>
-                  <p className="text-xs text-stone-500">Signed in</p>
+                  <button onClick={() => setShowAvatarPicker(true)} className="text-sm text-orange-600">
+                    Change picture
+                  </button>
                 </div>
               </div>
               <button
@@ -1455,6 +1576,14 @@ export default function App() {
           onClose={() => setQuickSendTo(null)}
         />
       )}
+      {showAvatarPicker && (
+        <AvatarPicker
+          name={currentUser}
+          current={avatars[currentUser] ?? null}
+          onSave={handleSaveAvatar}
+          onClose={() => setShowAvatarPicker(false)}
+        />
+      )}
       {/* "Nudge group" from inside a group chat — everyone pre-filled, sent as a group */}
       {quickSendGroup && (
         <QuickSendModal
@@ -1500,5 +1629,6 @@ export default function App() {
         mobileOffset={{ bottom: 'calc(env(safe-area-inset-bottom) + 76px)' }}
       />
     </div>
+    </AvatarContext.Provider>
   );
 }

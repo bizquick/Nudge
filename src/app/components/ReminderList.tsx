@@ -124,7 +124,8 @@ export function ReminderList({
     el.style.transition = 'scale 150ms ease-out, opacity 150ms ease-out';
     el.style.transform = '';
     el.style.translate = `0 ${desiredTop - el.offsetTop}px`;
-    el.style.scale = d.hoverTarget ? '0.35' : '1.02';
+    // Where it can be dropped into a folder, it's smaller from the moment it's picked up
+    el.style.scale = d.hoverTarget ? '0.35' : dropTargets ? '0.6' : '1.02';
     el.style.opacity = d.hoverTarget ? '0.85' : '';
     return desiredTop + el.offsetHeight / 2;
   };
