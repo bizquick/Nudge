@@ -204,6 +204,9 @@ export default function App() {
   const [folderOfReminder, setFolderOfReminder] = useState<Record<string, string>>({});
   const [foldersReady, setFoldersReady] = useState(false);
   const [activeFolder, setActiveFolder] = useState<string | null>(null);
+  // Dragging a favorite onto a folder: whether a drag is underway, and which folder it's over
+  const [favoriteDragging, setFavoriteDragging] = useState(false);
+  const [dropFolder, setDropFolder] = useState<string | null>(null);
 
   // Silenced notifications. Each entry is 'contact:<name>', 'group:<key>' or 'nudge:<id>'.
   const [mutes, setMutes] = useState<Set<string>>(new Set());
@@ -480,6 +483,21 @@ export default function App() {
     }
   };
 
+  // 🤯 Priority on or off for a nudge that's already been sent — anyone in the
+  // nudge can do it. Turning it on puts it at the back of the priority queue
+  // (oldest priority stays on top).
+  const handleTogglePriority = async (id: string) => {
+    const reminder = reminders.find(r => r.id === id);
+    if (!reminder) return;
+    const next = reminder.prioritizedAt ? null : new Date();
+    setReminders(prev => prev.map(r => r.id === id ? { ...r, prioritizedAt: next } : r));
+    const { error } = await supabase.from('reminders').update({ prioritized_at: next ? next.toISOString() : null }).eq('id', id);
+    if (error) {
+      console.error(error);
+      toast('Could not change priority');
+    }
+  };
+
   // Tick or untick one line of a to-do list nudge (everyone in the nudge sees it)
   const handleToggleTodo = async (id: string, index: number) => {
     const reminder = reminders.find(r => r.id === id);
@@ -620,6 +638,18 @@ export default function App() {
   };
 
   // Archive a whole chat (a person, or a group as 'group:<key>') — with Undo
+  // A favorite was dragged onto a folder chip
+  const handleDropIntoFolder = (reminderId: string, folderId: string) => {
+    const previous = folderOfReminder[reminderId] ?? null;
+    if (previous === folderId) return;
+    handleMoveToFolder(reminderId, folderId);
+    const name = folders.find(f => f.id === folderId)?.name ?? 'folder';
+    toast(`Moved to ${name}`, {
+      duration: 4000,
+      action: { label: 'Undo', onClick: () => handleMoveToFolder(reminderId, previous) },
+    });
+  };
+
   const handleArchiveContact = (name: string, label: string = name) => {
     setContactStatus(name, 'archived');
     toast(`Archived chat with ${label}`, {
@@ -1057,6 +1087,7 @@ export default function App() {
               onForward={setForwardingReminder}
               onToggleReaction={handleToggleReaction}
               onToggleTodo={handleToggleTodo}
+              onTogglePriority={handleTogglePriority}
             />
           ) : mobileTab === 'inbox' ? (
             <>
@@ -1074,6 +1105,8 @@ export default function App() {
                   onCreate={handleCreateFolder}
                   onRename={handleRenameFolder}
                   onDelete={handleDeleteFolder}
+                  dragActive={favoriteDragging}
+                  hoverId={dropFolder}
                 />
               );
             })()}
@@ -1095,7 +1128,15 @@ export default function App() {
               onForward={setForwardingReminder}
               onToggleReaction={handleToggleReaction}
               onToggleTodo={handleToggleTodo}
-              reorderable={sortSettings[allMessagesFilter].key === 'custom'}
+              onTogglePriority={handleTogglePriority}
+              // Favorites can always be held and dragged (to file into a folder); rearranging
+              // by dropping between cards only happens in Custom order
+              reorderable={sortSettings[allMessagesFilter].key === 'custom' || (allMessagesFilter === 'favorited' && foldersReady)}
+              allowReorder={sortSettings[allMessagesFilter].key === 'custom'}
+              dropTargets={allMessagesFilter === 'favorited' && foldersReady}
+              onDragActiveChange={setFavoriteDragging}
+              onDropHover={setDropFolder}
+              onDropOnTarget={handleDropIntoFolder}
               onReorder={handleReorderUnread}
               emptyMessage={
                 allMessagesFilter === 'unread'
@@ -1103,7 +1144,7 @@ export default function App() {
                   : allMessagesFilter === 'archived'
                     ? 'Nothing archived. Nudges you archive will wait here.'
                     : activeFolder
-                      ? 'This folder is empty. Open a favorite and tap its folder button to file it here.'
+                      ? 'This folder is empty. Go to All, then hold a favorite and drag it onto this folder.'
                       : 'No favorites yet. Open a nudge and tap the star to save it here.'
               }
               folderOptions={allMessagesFilter === 'favorited' && foldersReady
@@ -1161,6 +1202,7 @@ export default function App() {
                 onForward={setForwardingReminder}
                 onToggleReaction={handleToggleReaction}
               onToggleTodo={handleToggleTodo}
+              onTogglePriority={handleTogglePriority}
                 onUpvote={handleToggleVote}
                 emptyMessage={
                   popularSubTab === 'top'

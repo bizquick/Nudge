@@ -33,6 +33,7 @@ interface ReminderCardProps {
   // Mirror the layout (avatar on the left, title/category on the right) for nudges you sent, in chats
   flipped?: boolean;
   onToggleTodo?: (reminderId: string, index: number) => void;
+  onTogglePriority?: (reminderId: string) => void;
   /** You've silenced notifications for this nudge */
   muted?: boolean;
 }
@@ -63,6 +64,7 @@ export function ReminderCard({
   folderOptions,
   flipped,
   onToggleTodo,
+  onTogglePriority,
   muted
 }: ReminderCardProps) {
   const todos = reminder.todoItems;
@@ -559,6 +561,24 @@ export function ReminderCard({
               >
                 <Star className={`w-4 h-4 ${reminder.favorited ? 'fill-amber-500 text-amber-500' : 'text-stone-600'}`} />
               </button>}
+
+              {/* Priority — sender or receiver can bump it to the top of everyone's list */}
+              {isParticipant && onTogglePriority && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onTogglePriority(reminder.id);
+                  }}
+                  className={`px-2 py-1 rounded-full border transition-all hover:scale-110 text-sm leading-4 ${
+                    reminder.prioritizedAt ? 'bg-orange-100 border-orange-300' : 'bg-white border-stone-300 hover:bg-stone-100 grayscale opacity-70'
+                  }`}
+                  title={reminder.prioritizedAt ? 'Remove priority' : 'Prioritize'}
+                  aria-pressed={!!reminder.prioritizedAt}
+                >
+                  <span aria-hidden="true">🤯</span>
+                  <span className="sr-only">{reminder.prioritizedAt ? 'Remove priority' : 'Prioritize'}</span>
+                </button>
+              )}
 
               {/* Forward Button */}
               <button

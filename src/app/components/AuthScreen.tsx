@@ -1,8 +1,27 @@
 import { useState } from 'react';
-import { Send } from 'lucide-react';
+import { Send, Eye, EyeOff } from 'lucide-react';
 import { ImageWithFallback } from './figma/ImageWithFallback';
 import nudgeLogo from '../../imports/image-3.png';
 import { supabase } from '../utils/supabase/client';
+
+// A password box with an eye button to show or hide what you've typed
+function PasswordInput({ className, ...props }: React.InputHTMLAttributes<HTMLInputElement>) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <div className="relative">
+      <input {...props} type={visible ? 'text' : 'password'} autoCapitalize="none" autoCorrect="off" spellCheck={false} className={`${className ?? ''} pr-12`} />
+      <button
+        type="button"
+        onClick={() => setVisible(v => !v)}
+        className="absolute inset-y-0 right-0 px-3.5 flex items-center text-stone-400 hover:text-stone-600"
+        aria-label={visible ? 'Hide password' : 'Show password'}
+        aria-pressed={visible}
+      >
+        {visible ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+      </button>
+    </div>
+  );
+}
 
 interface AuthScreenProps {
   onSignedIn: (displayName: string) => void;
@@ -337,9 +356,8 @@ export function AuthScreen({ onSignedIn }: AuthScreenProps) {
         {mode !== 'forgot' && mode !== 'forgotName' && (
           <div>
             <label htmlFor="auth-password" className={labelClass}>{mode === 'reset' ? 'New password' : 'Password'}</label>
-            <input
+            <PasswordInput
               id="auth-password"
-              type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder={mode === 'login' ? 'Your password' : 'At least 6 characters'}
@@ -352,9 +370,8 @@ export function AuthScreen({ onSignedIn }: AuthScreenProps) {
         {(mode === 'signup' || mode === 'reset') && (
           <div>
             <label htmlFor="auth-confirm" className={labelClass}>Retype password</label>
-            <input
+            <PasswordInput
               id="auth-confirm"
-              type="password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               placeholder="Same password again"

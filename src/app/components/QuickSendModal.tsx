@@ -480,14 +480,14 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
             ))}
           </div>
 
-          {/* Options as tap-to-toggle chips */}
-          <div className="flex gap-2 flex-wrap">
+          {/* Options as tap-to-toggle chips — one row you can swipe sideways, like the categories */}
+          <div className="-mx-4 px-4 flex gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {!recipient && (
               <button
                 type="button"
                 aria-pressed={isSaveToSelf}
                 onClick={() => setIsSaveToSelf(v => !v)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition-colors ${
+                className={`shrink-0 whitespace-nowrap flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition-colors ${
                   isSaveToSelf ? 'border-orange-600 bg-orange-50 text-orange-700' : 'border-stone-300 text-stone-600'
                 }`}
               >
@@ -499,7 +499,7 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
               type="button"
               aria-pressed={isPublic}
               onClick={() => setIsPublic(v => !v)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition-colors ${
+              className={`shrink-0 whitespace-nowrap flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition-colors ${
                 isPublic ? 'border-orange-600 bg-orange-50 text-orange-700' : 'border-stone-300 text-stone-600'
               }`}
             >
@@ -510,7 +510,7 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
               type="button"
               aria-pressed={prioritized}
               onClick={() => setPrioritized(v => !v)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition-colors ${
+              className={`shrink-0 whitespace-nowrap flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition-colors ${
                 prioritized ? 'border-orange-600 bg-orange-50 text-orange-700' : 'border-stone-300 text-stone-600'
               }`}
             >
@@ -521,7 +521,7 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
               type="button"
               aria-pressed={isTodo}
               onClick={() => setIsTodo(v => !v)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition-colors ${
+              className={`shrink-0 whitespace-nowrap flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition-colors ${
                 isTodo ? 'border-orange-600 bg-orange-50 text-orange-700' : 'border-stone-300 text-stone-600'
               }`}
             >

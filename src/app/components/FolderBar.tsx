@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Pencil, Trash2, Check, X } from 'lucide-react';
+import { Plus, Pencil, Trash2, Check, X, Folder as FolderIcon } from 'lucide-react';
 
 export interface Folder { id: string; name: string }
 
@@ -12,11 +12,15 @@ interface FolderBarProps {
   onCreate: (name: string) => void;
   onRename: (id: string, name: string) => void;
   onDelete: (id: string) => void;
+  /** A favorite is being dragged: show folders as big drop targets */
+  dragActive?: boolean;
+  /** The folder the dragged nudge is currently over */
+  hoverId?: string | null;
 }
 
 // One row of folder chips above Favorites: All · your folders · + New folder.
 // The selected folder gets small rename/delete buttons.
-export function FolderBar({ folders, counts, totalCount, active, onSelect, onCreate, onRename, onDelete }: FolderBarProps) {
+export function FolderBar({ folders, counts, totalCount, active, onSelect, onCreate, onRename, onDelete, dragActive, hoverId }: FolderBarProps) {
   const [draft, setDraft] = useState<string | null>(null); // non-null while naming a new folder
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
@@ -37,6 +41,37 @@ export function FolderBar({ folders, counts, totalCount, active, onSelect, onCre
     if (renaming && name) onRename(renaming, name);
     setRenaming(null);
   };
+
+  // While dragging a favorite: every folder becomes a big drop target. They wrap
+  // onto extra lines instead of scrolling, so none are hidden off to the side.
+  if (dragActive) {
+    return (
+      <div className="mb-2">
+        <p className="mb-1.5 text-xs text-stone-500">
+          {folders.length ? 'Drop it into a folder' : 'Make a folder first with "New folder"'}
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {folders.map(folder => {
+            const over = hoverId === folder.id;
+            return (
+              <div
+                key={folder.id}
+                data-drop-target={folder.id}
+                className={`flex items-center gap-2 px-4 py-3 rounded-2xl border-2 text-sm transition-all duration-150 ${
+                  over
+                    ? 'scale-110 border-orange-500 bg-orange-100 text-orange-800 shadow-md'
+                    : 'border-dashed border-orange-300 bg-white text-stone-700'
+                }`}
+              >
+                <FolderIcon className="w-4 h-4" />
+                {folder.name}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="-mx-4 px-4 mb-2 flex items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">

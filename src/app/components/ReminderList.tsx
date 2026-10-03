@@ -27,6 +27,14 @@ interface ReminderListProps {
   // Chat threads: nudges you sent sit narrower on the right, received ones on the left
   chatLayout?: boolean;
   onToggleTodo?: (reminderId: string, index: number) => void;
+  onTogglePriority?: (reminderId: string) => void;
+  // Drag-and-drop onto other things on the page (Favorites folders). Any element
+  // marked data-drop-target="<id>" becomes a place a dragged nudge can be dropped.
+  allowReorder?: boolean;
+  dropTargets?: boolean;
+  onDragActiveChange?: (active: boolean) => void;
+  onDropHover?: (targetId: string | null) => void;
+  onDropOnTarget?: (reminderId: string, targetId: string) => void;
   // Chats: swipe a nudge left to silence its notifications
   swipeable?: boolean;
   mutedIds?: Set<string>;
@@ -54,6 +62,12 @@ export function ReminderList({
   folderOptions,
   chatLayout,
   onToggleTodo,
+  onTogglePriority,
+  allowReorder = true,
+  dropTargets,
+  onDragActiveChange,
+  onDropHover,
+  onDropOnTarget,
   swipeable,
   mutedIds,
   onToggleMute
@@ -70,7 +84,10 @@ export function ReminderList({
   const drag = useRef<{
     id: string;
     grabOffset: number; // finger distance from the card's top edge
+    grabX: number; // finger distance from the card's left edge
     lastY: number;
+    lastX: number;
+    hoverTarget: string | null; // drop target (e.g. a folder) under the finger
     order: string[];
     startOrder: string[];
     scrollEl: HTMLElement | null;
@@ -101,7 +118,14 @@ export function ReminderList({
     const el = d && itemRefs.current.get(d.id);
     if (!d || !container || !el) return null;
     const desiredTop = d.lastY - d.grabOffset - container.getBoundingClientRect().top;
-    el.style.transform = `translateY(${desiredTop - el.offsetTop}px) scale(1.02)`;
+    // Over a folder, shrink toward the fingertip so the highlighted folder shows underneath
+    // (uses the separate CSS translate/scale properties so the shrink doesn't also shrink the move)
+    el.style.transformOrigin = `${d.grabX}px ${d.grabOffset}px`;
+    el.style.transition = 'scale 150ms ease-out, opacity 150ms ease-out';
+    el.style.transform = '';
+    el.style.translate = `0 ${desiredTop - el.offsetTop}px`;
+    el.style.scale = d.hoverTarget ? '0.35' : '1.02';
+    el.style.opacity = d.hoverTarget ? '0.85' : '';
     return desiredTop + el.offsetHeight / 2;
   };
 
@@ -174,7 +198,24 @@ export function ReminderList({
     }
 
     const center = positionDragged();
-    if (center != null) {
+
+    // Over a drop target (a folder)? Then this drop files it there instead of reordering.
+    if (dropTargets) {
+      let hovered: string | null = null;
+      document.querySelectorAll<HTMLElement>('[data-drop-target]').forEach(el => {
+        const r = el.getBoundingClientRect();
+        if (d.lastX >= r.left && d.lastX <= r.right && d.lastY >= r.top && d.lastY <= r.bottom) {
+          hovered = el.dataset.dropTarget ?? null;
+        }
+      });
+      if (hovered !== d.hoverTarget) {
+        d.hoverTarget = hovered;
+        onDropHover?.(hovered);
+        if (hovered) Haptics.impact({ style: ImpactStyle.Light }).catch(() => {});
+      }
+    }
+
+    if (center != null && allowReorder && !d.hoverTarget) {
       // New slot = how many other cards' (unmoved) middles are above the dragged card's middle
       const others = d.startOrder.filter(id => id !== d.id);
       const target = others.filter(id => {
@@ -202,7 +243,9 @@ export function ReminderList({
   };
 
   const onWindowMove = (e: PointerEvent) => {
-    if (drag.current) drag.current.lastY = e.clientY;
+    if (!drag.current) return;
+    drag.current.lastY = e.clientY;
+    drag.current.lastX = e.clientX;
   };
 
   const endDrag = () => {
@@ -218,19 +261,31 @@ export function ReminderList({
 
     // Remember where every card is on screen right now, so the FLIP animation
     // glides them from here into their new places once the order is committed.
-    const changed = d.order.join('|') !== d.startOrder.join('|');
+    const droppedOn = d.hoverTarget;
+    // Dropped on a folder: everything glides back to where it was, and the nudge is filed
+    const changed = !droppedOn && allowReorder && d.order.join('|') !== d.startOrder.join('|');
     const visual = new Map<string, DOMRect>();
     d.startOrder.forEach(id => {
       const el = itemRefs.current.get(id);
       if (!el) return;
       visual.set(id, el.getBoundingClientRect());
       // Dropped back in its own spot: just glide home. Otherwise FLIP takes over below.
-      el.style.transition = changed ? 'none' : 'transform 200ms cubic-bezier(0.22, 1, 0.36, 1)';
+      el.style.transition = changed
+        ? 'none'
+        : 'transform 200ms cubic-bezier(0.22, 1, 0.36, 1), translate 200ms cubic-bezier(0.22, 1, 0.36, 1), scale 200ms ease-out, opacity 200ms ease-out';
       el.style.transform = '';
+      el.style.translate = '';
+      el.style.scale = '';
+      el.style.opacity = '';
     });
     prevRects.current = visual;
 
     setDraggingId(null);
+    onDragActiveChange?.(false);
+    if (droppedOn) {
+      onDropHover?.(null);
+      onDropOnTarget?.(d.id, droppedOn);
+    }
     suppressClick.current = true;
     setTimeout(() => { suppressClick.current = false; }, 400);
     if (changed) {
@@ -239,7 +294,7 @@ export function ReminderList({
     }
   };
 
-  const startDrag = (id: string, clientY: number) => {
+  const startDrag = (id: string, clientY: number, clientX = 0) => {
     if (drag.current) endDrag(); // clear anything left over, just in case
     const el = itemRefs.current.get(id);
     if (!el) return;
@@ -249,7 +304,10 @@ export function ReminderList({
     drag.current = {
       id,
       grabOffset: clientY - el.getBoundingClientRect().top,
+      grabX: clientX - el.getBoundingClientRect().left,
       lastY: clientY,
+      lastX: clientX,
+      hoverTarget: null,
       order: displayOrder,
       startOrder: displayOrder,
       scrollEl: el.closest('.overflow-y-auto') as HTMLElement | null,
@@ -257,6 +315,7 @@ export function ReminderList({
       slotSize: el.offsetHeight + Math.max(gap, 0)
     };
     setDraggingId(id);
+    onDragActiveChange?.(true);
     // A light tap you can feel, so you know the card is picked up (no-op where unsupported)
     try {
       Haptics.impact({ style: ImpactStyle.Light }).catch(() => {});
@@ -291,7 +350,7 @@ export function ReminderList({
         timer: setTimeout(() => {
           const p = press.current;
           press.current = null;
-          if (p) startDrag(p.id, p.y);
+          if (p) startDrag(p.id, p.y, p.x);
         }, 200)
       };
     },
@@ -348,6 +407,7 @@ export function ReminderList({
             onSelect={handleSelect}
             folderOptions={folderOptions}
             onToggleTodo={onToggleTodo}
+            onTogglePriority={onTogglePriority}
             muted={muted}
             flipped={chatLayout && sentByMe}
             dragHandleProps={
@@ -357,7 +417,7 @@ export function ReminderList({
                       e.preventDefault();
                       e.stopPropagation();
                       cancelPress();
-                      startDrag(reminder.id, e.clientY);
+                      startDrag(reminder.id, e.clientY, e.clientX);
                     },
                     style: { touchAction: 'none' }
                   }
