@@ -27,3 +27,9 @@ xcuserdata/
 *.local.sql
 *.local.txt
 *.p8
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+!.env.example
