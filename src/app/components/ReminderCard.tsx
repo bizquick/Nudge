@@ -94,7 +94,7 @@ export function ReminderCard({
   const todos = reminder.todoItems;
   const todosDone = todos ? todos.filter(t => t.done).length : 0;
   const [showFolderMenu, setShowFolderMenu] = useState(false);
-  // Saved to your own My Nudges — tinted light orange so you can tell it's from you
+  // Saved to your own My Flags — tinted light gold so you can tell it's from you
   const fromMe = reminder.sender === currentUser && reminder.recipients.includes(currentUser);
   // Sent by you to other people (not just saved to My Nudges) — tinted light blue
   const sentByMe = reminder.sender === currentUser && !fromMe;
@@ -203,17 +203,17 @@ export function ReminderCard({
     // neighboring elements and the scroll area's edges could cover up)
     <div className={`${rich ? 'rounded-2xl' : 'rounded-xl'} shadow-sm border-2 transition-all ${
       isSelected
-        ? 'border-orange-400'
+        ? 'border-brand-400'
         : rich && reminder.prioritizedAt && !reminder.checkedOut
-          ? 'border-orange-300 !bg-orange-50'
+          ? 'border-gold-300 !bg-gold-50'
           : reminder.checkedOut
           ? 'border-green-500'
           : fromMe
-            ? 'border-orange-200'
+            ? 'border-gold-200'
             : sentByMe
               ? 'border-sky-200'
               : 'border-stone-200 hover:border-stone-300'
-    } ${reminder.checkedOut ? 'bg-green-100' : fromMe ? 'bg-orange-50' : sentByMe ? 'bg-sky-50' : 'bg-white'}`}>
+    } ${reminder.checkedOut ? 'bg-green-100' : fromMe ? 'bg-gold-50' : sentByMe ? 'bg-sky-50' : 'bg-white'}`}>
       {dragHandleProps && !rich && (
         <div
           {...dragHandleProps}
@@ -243,7 +243,7 @@ export function ReminderCard({
                 <MessageCircle className="w-6 h-6" />
               )}
               {hasUnreadMessages && (
-                <div className="absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-orange-600 border-2 border-white" aria-label="New message"></div>
+                <div className="absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-brand-600 border-2 border-white" aria-label="New message"></div>
               )}
             </div>
             <div className="flex-1 min-w-0">
@@ -305,14 +305,14 @@ export function ReminderCard({
                   </div>
                 )}
                 {hasUnreadMessages && (
-                  <div className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-orange-600 border-2 border-white"></div>
+                  <div className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-brand-600 border-2 border-white"></div>
                 )}
               </div>
             ) : (
               <div className="relative shrink-0">
                 <Avatar name={viewType === 'received' ? reminder.sender : reminder.recipients[0]} size={32} />
                 {hasUnreadMessages && (
-                  <div className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-orange-600 border-2 border-white"></div>
+                  <div className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-brand-600 border-2 border-white"></div>
                 )}
               </div>
             )}
@@ -392,9 +392,9 @@ export function ReminderCard({
                   value={titleDraft}
                   onChange={(e) => setTitleDraft(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') handleTitleSave(); }}
-                  className="flex-1 text-lg border-b-2 border-orange-500 focus:outline-none"
+                  className="flex-1 text-lg border-b-2 border-brand-500 focus:outline-none"
                 />
-                <button onClick={handleTitleSave} className="text-orange-600 text-sm shrink-0">Save</button>
+                <button onClick={handleTitleSave} className="text-brand-600 text-sm shrink-0">Save</button>
               </div>
             ) : (
               <div className="flex items-center gap-2 mb-1">
@@ -446,7 +446,7 @@ export function ReminderCard({
                 href={reminder.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-sm text-orange-600 hover:text-orange-700 mb-3"
+                className="inline-flex items-center gap-1 text-sm text-brand-600 hover:text-brand-700 mb-3"
                 onClick={(e) => e.stopPropagation()}
               >
                 <ExternalLink className="w-4 h-4" />
@@ -520,7 +520,7 @@ export function ReminderCard({
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
                   placeholder="Type a message..."
-                  className="flex-1 px-3 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm"
+                  className="flex-1 px-3 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm"
                 />
                 <button
                   type="submit"
@@ -550,7 +550,7 @@ export function ReminderCard({
                   }}
                   className={`px-2 py-1 rounded-full border transition-all hover:scale-110 ${
                     reaction.users.includes(currentUser)
-                      ? 'bg-orange-100 border-orange-300'
+                      ? 'bg-brand-100 border-brand-300'
                       : 'bg-white border-stone-300 hover:bg-stone-100'
                   }`}
                   title={reaction.users.join(', ')}
@@ -621,7 +621,7 @@ export function ReminderCard({
                     onTogglePriority(reminder.id);
                   }}
                   className={`px-2 py-1 rounded-full border transition-all hover:scale-110 text-sm leading-4 ${
-                    reminder.prioritizedAt ? 'bg-orange-100 border-orange-300' : 'bg-white border-stone-300 hover:bg-stone-100 grayscale opacity-70'
+                    reminder.prioritizedAt ? 'bg-gold-100 border-gold-300' : 'bg-white border-stone-300 hover:bg-stone-100 grayscale opacity-70'
                   }`}
                   title={reminder.prioritizedAt ? 'Remove priority' : 'Prioritize'}
                   aria-pressed={!!reminder.prioritizedAt}
@@ -638,7 +638,7 @@ export function ReminderCard({
                   onForward(reminder);
                 }}
                 className="px-2 py-1 rounded-full border border-stone-300 bg-white text-stone-600 hover:bg-stone-100 transition-all hover:scale-110"
-                title="Forward this nudge"
+                title="Forward this flag"
               >
                 <Forward className="w-4 h-4" />
               </button>
@@ -655,7 +655,7 @@ export function ReminderCard({
                         setShowFolderMenu(!showFolderMenu);
                       }}
                       className={`px-2 py-1 rounded-full border transition-all flex items-center gap-1 text-xs ${
-                        currentFolder ? 'bg-orange-50 border-orange-300 text-orange-700' : 'bg-white border-stone-300 text-stone-600 hover:bg-stone-100'
+                        currentFolder ? 'bg-brand-50 border-brand-300 text-brand-700' : 'bg-white border-stone-300 text-stone-600 hover:bg-stone-100'
                       }`}
                       title="Move to folder"
                     >
@@ -681,7 +681,7 @@ export function ReminderCard({
                               className="w-full flex items-center justify-between px-3 py-2 text-sm text-stone-700 hover:bg-stone-50"
                             >
                               <span className="truncate">{f.name}</span>
-                              {currentFolder === f.id && <Check className="w-4 h-4 text-orange-600 shrink-0" />}
+                              {currentFolder === f.id && <Check className="w-4 h-4 text-brand-600 shrink-0" />}
                             </button>
                           ))
                         )}

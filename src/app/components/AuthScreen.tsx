@@ -178,7 +178,7 @@ export function AuthScreen({ onSignedIn }: AuthScreenProps) {
       return;
     }
     switchMode('reset');
-    setNotice(`If ${email.trim()} has a Nudge account, we just emailed it a code.`);
+    setNotice(`If ${email.trim()} has a Flag account, we just emailed it a code.`);
   };
 
   // Forgot your Nudge name: email it to them — no password change involved.
@@ -202,7 +202,7 @@ export function AuthScreen({ onSignedIn }: AuthScreenProps) {
       return;
     }
     switchMode('login');
-    setNotice(`If ${email.trim()} has a Nudge account, we just emailed your Nudge name to it.`);
+    setNotice(`If ${email.trim()} has a Flag account, we just emailed your username to it.`);
   };
 
   // Forgot password, step 2: the code proves it's them, then save the new password
@@ -234,11 +234,10 @@ export function AuthScreen({ onSignedIn }: AuthScreenProps) {
     await finishLogin(data.user?.id);
   };
 
-  const inputClass = 'w-full px-4 py-2.5 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-300';
+  const inputClass = 'w-full px-4 py-2.5 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-300';
   const labelClass = 'block text-xs text-stone-500 mb-1';
 
-  // The logo image has a lot of empty space built in; the negative margins trim it
-  const logo = <ImageWithFallback src={nudgeLogo} alt="Nudge" className="h-[230px] w-auto object-contain mx-auto -my-[72px]" />;
+  const logo = <ImageWithFallback src={nudgeLogo} alt="Flag" className="h-16 w-auto object-contain mx-auto mt-6 mb-3" />;
 
   // Fits one iPhone screen: starts near the top (below the notch) instead of floating in the middle
   const shell = (children: React.ReactNode) => (
@@ -259,7 +258,7 @@ export function AuthScreen({ onSignedIn }: AuthScreenProps) {
         </p>
         <button
           onClick={() => { setCheckEmail(false); switchMode('login'); }}
-          className="mt-6 text-orange-600 underline text-sm"
+          className="mt-6 text-brand-600 underline text-sm"
         >
           Back to log in
         </button>
@@ -275,7 +274,7 @@ export function AuthScreen({ onSignedIn }: AuthScreenProps) {
     <>
       {logo}
       <p className="text-stone-600 italic text-sm mb-4">
-        Because "I'll check it out later" is a lie.
+        Flag it. Because "I'll check it out later" is a lie.
       </p>
 
       {isRecovery ? (
@@ -283,20 +282,20 @@ export function AuthScreen({ onSignedIn }: AuthScreenProps) {
           {mode === 'forgot'
             ? "Enter your email and we'll send you a code to set a new password."
             : mode === 'forgotName'
-              ? "Enter your email and we'll send you your Nudge name. Your password stays the same."
+              ? "Enter your email and we'll send you your username. Your password stays the same."
               : 'Enter the code from the email, then choose a new password.'}
         </p>
       ) : (
         <div className="flex mb-4 rounded-lg border border-stone-200 overflow-hidden">
           <button
             onClick={() => switchMode('signup')}
-            className={`flex-1 py-2 text-sm transition-colors ${mode === 'signup' ? 'bg-orange-600 text-white' : 'bg-white text-stone-600'}`}
+            className={`flex-1 py-2 text-sm transition-colors ${mode === 'signup' ? 'bg-brand-600 text-white' : 'bg-white text-stone-600'}`}
           >
             Sign up
           </button>
           <button
             onClick={() => switchMode('login')}
-            className={`flex-1 py-2 text-sm transition-colors ${mode === 'login' ? 'bg-orange-600 text-white' : 'bg-white text-stone-600'}`}
+            className={`flex-1 py-2 text-sm transition-colors ${mode === 'login' ? 'bg-brand-600 text-white' : 'bg-white text-stone-600'}`}
           >
             Log in
           </button>
@@ -387,7 +386,7 @@ export function AuthScreen({ onSignedIn }: AuthScreenProps) {
         <button
           type="submit"
           disabled={loading}
-          className="w-full py-3 px-4 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-40 transition-colors flex items-center justify-center gap-2"
+          className="w-full py-3 px-4 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-40 transition-colors flex items-center justify-center gap-2"
         >
           <Send className="w-4 h-4" />
           {loading ? 'Please wait…' : submitLabel}
@@ -397,17 +396,17 @@ export function AuthScreen({ onSignedIn }: AuthScreenProps) {
       <div className="mt-3 flex flex-col items-center gap-2 text-sm">
         {mode === 'login' && (
           <div className="flex items-center gap-4">
-            <button onClick={() => switchMode('forgot')} className="text-orange-600">
+            <button onClick={() => switchMode('forgot')} className="text-brand-600">
               Forgot password?
             </button>
             <span className="text-stone-300" aria-hidden="true">|</span>
-            <button onClick={() => switchMode('forgotName')} className="text-orange-600">
-              Forgot Nudge name?
+            <button onClick={() => switchMode('forgotName')} className="text-brand-600">
+              Forgot username?
             </button>
           </div>
         )}
         {mode === 'reset' && (
-          <button onClick={() => switchMode('forgot')} className="text-orange-600">
+          <button onClick={() => switchMode('forgot')} className="text-brand-600">
             Send a new code
           </button>
         )}

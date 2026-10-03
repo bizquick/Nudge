@@ -27,7 +27,7 @@ export function FolderBar({ folders, counts, totalCount, active, onSelect, onCre
 
   const chip = (selected: boolean) =>
     `shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs whitespace-nowrap border transition-colors ${
-      selected ? 'bg-orange-600 border-orange-600 text-white' : 'bg-white border-stone-300 text-stone-700'
+      selected ? 'bg-brand-600 border-brand-600 text-white' : 'bg-white border-stone-300 text-stone-700'
     }`;
 
   const submitNew = () => {
@@ -59,8 +59,8 @@ export function FolderBar({ folders, counts, totalCount, active, onSelect, onCre
                 data-drop-target={folder.id}
                 className={`flex items-center gap-2 px-4 py-3 rounded-2xl border-2 text-sm transition-all duration-150 ${
                   over
-                    ? 'scale-110 border-orange-500 bg-orange-100 text-orange-800 shadow-md'
-                    : 'border-dashed border-orange-300 bg-white text-stone-700'
+                    ? 'scale-110 border-brand-500 bg-brand-100 text-brand-800 shadow-md'
+                    : 'border-dashed border-brand-300 bg-white text-stone-700'
                 }`}
               >
                 <FolderIcon className="w-4 h-4" />
@@ -84,7 +84,7 @@ export function FolderBar({ folders, counts, totalCount, active, onSelect, onCre
           <form
             key={folder.id}
             onSubmit={(e) => { e.preventDefault(); submitRename(); }}
-            className="shrink-0 flex items-center gap-1 pl-3 pr-1 py-0.5 rounded-full border border-orange-400 bg-white"
+            className="shrink-0 flex items-center gap-1 pl-3 pr-1 py-0.5 rounded-full border border-brand-400 bg-white"
           >
             <input
               autoFocus
@@ -94,7 +94,7 @@ export function FolderBar({ folders, counts, totalCount, active, onSelect, onCre
               className="w-24 text-xs bg-transparent focus:outline-none"
               aria-label="Folder name"
             />
-            <button type="submit" className="p-1 text-orange-600" aria-label="Save name"><Check className="w-3.5 h-3.5" /></button>
+            <button type="submit" className="p-1 text-brand-600" aria-label="Save name"><Check className="w-3.5 h-3.5" /></button>
           </form>
         ) : (
           <div key={folder.id} className="shrink-0 flex items-center gap-1">
@@ -114,7 +114,7 @@ export function FolderBar({ folders, counts, totalCount, active, onSelect, onCre
                 <button
                   type="button"
                   onClick={() => {
-                    if (window.confirm(`Delete the folder "${folder.name}"? The nudges in it stay in your Favorites.`)) onDelete(folder.id);
+                    if (window.confirm(`Delete the folder "${folder.name}"? The flags in it stay in your Favorites.`)) onDelete(folder.id);
                   }}
                   className="p-1.5 rounded-full text-stone-500 hover:bg-stone-100"
                   aria-label={`Delete ${folder.name}`}
@@ -130,7 +130,7 @@ export function FolderBar({ folders, counts, totalCount, active, onSelect, onCre
       {draft !== null ? (
         <form
           onSubmit={(e) => { e.preventDefault(); submitNew(); }}
-          className="shrink-0 flex items-center gap-1 pl-3 pr-1 py-0.5 rounded-full border border-orange-400 bg-white"
+          className="shrink-0 flex items-center gap-1 pl-3 pr-1 py-0.5 rounded-full border border-brand-400 bg-white"
         >
           <input
             autoFocus

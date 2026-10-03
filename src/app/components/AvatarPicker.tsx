@@ -77,7 +77,7 @@ export function AvatarPicker({ name, current, onSave, onClose }: AvatarPickerPro
               <button
                 onClick={() => fileRef.current?.click()}
                 disabled={busy}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-600 text-white text-sm disabled:opacity-50"
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 text-white text-sm disabled:opacity-50"
               >
                 {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
                 Upload a photo
@@ -99,7 +99,7 @@ export function AvatarPicker({ name, current, onSave, onClose }: AvatarPickerPro
                 <button
                   key={emoji}
                   onClick={() => setChoice(value)}
-                  className={`rounded-full p-0.5 ${choice === value ? 'ring-2 ring-orange-500' : ''}`}
+                  className={`rounded-full p-0.5 ${choice === value ? 'ring-2 ring-brand-500' : ''}`}
                   aria-label={`Use ${emoji}`}
                   aria-pressed={choice === value}
                 >
@@ -114,7 +114,7 @@ export function AvatarPicker({ name, current, onSave, onClose }: AvatarPickerPro
           <button
             onClick={save}
             disabled={busy || choice === current}
-            className="w-full py-2.5 rounded-xl bg-orange-600 text-white disabled:opacity-40"
+            className="w-full py-2.5 rounded-xl bg-brand-600 text-white disabled:opacity-40"
           >
             Save
           </button>

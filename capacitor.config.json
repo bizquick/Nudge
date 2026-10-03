@@ -1,6 +1,6 @@
 {
   "appId": "com.brandonchirco.nudge",
-  "appName": "Nudge",
+  "appName": "Flag",
   "webDir": "dist",
   "ios": {
     "contentInset": "never"

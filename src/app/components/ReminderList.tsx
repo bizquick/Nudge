@@ -374,10 +374,10 @@ export function ReminderList({
           {emptyMessage
             ? emptyMessage
             : reorderable
-              ? 'Nothing here yet — drag nudges into the order you want once you have some.'
+              ? 'Nothing here yet — drag flags into the order you want once you have some.'
               : viewType === 'received'
-                ? 'No nudges yet. Your friends will send you cool stuff to check out!'
-                : 'You haven\'t sent any nudges yet. Send your first one above!'}
+                ? 'No flags yet. Your friends will send you cool stuff to check out!'
+                : 'You haven\'t sent any flags yet. Send your first one above!'}
         </p>
       </div>
     );

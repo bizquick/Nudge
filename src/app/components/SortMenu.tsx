@@ -119,7 +119,7 @@ export function SortMenu({ value, onChange }: { value: SortSetting; onChange: (s
                 {KEY_LABELS[key]}
                 {key === 'custom' && <span className="block text-[11px] text-stone-400">Drag to arrange</span>}
               </span>
-              {value.key === key && <Check className="w-4 h-4 text-orange-600" />}
+              {value.key === key && <Check className="w-4 h-4 text-brand-600" />}
             </button>
           ))}
 
@@ -134,7 +134,7 @@ export function SortMenu({ value, onChange }: { value: SortSetting; onChange: (s
                     aria-checked={value.dir === dir}
                     onClick={() => onChange({ ...value, dir })}
                     className={`flex-1 px-2 py-1 rounded-md transition-colors ${
-                      value.dir === dir ? 'bg-orange-600 text-white' : 'text-stone-600'
+                      value.dir === dir ? 'bg-brand-600 text-white' : 'text-stone-600'
                     }`}
                   >
                     {dirLabel(value.key, dir)}

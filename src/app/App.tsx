@@ -716,7 +716,7 @@ export default function App() {
       : await supabase.from('favorite_folder_items').delete().match({ owner_name: currentUser, reminder_id: reminderId });
     if (error) {
       console.error(error);
-      toast('Could not move that nudge');
+      toast('Could not move that flag');
     }
   };
 
@@ -990,13 +990,13 @@ export default function App() {
     const name = pendingInvite;
     setPendingInvite(null);
     if (name.toLowerCase() === currentUser.toLowerCase()) {
-      toast("That's your own Nudge link — send it to a friend!");
+      toast("That's your own Flag link — send it to a friend!");
       return;
     }
     // Confirm the person exists (exact name), then open a new nudge addressed to them
     supabase.rpc('find_profile', { p_name: name }).then(({ data, error }) => {
       if (error || typeof data !== 'string') {
-        toast(`Couldn't find anyone named ${name} on Nudge`);
+        toast(`Couldn't find anyone named ${name} on Flag`);
         return;
       }
       setSelectedSender(null);
@@ -1010,10 +1010,10 @@ export default function App() {
     const url = `https://nudgem.app/add?u=${encodeURIComponent(currentUser)}`;
     try {
       await Share.share({
-        title: 'Send me a nudge',
-        text: `Send me a nudge! My Nudge name is ${currentUser}.`,
+        title: 'Send me a flag',
+        text: `Send me a flag! My username on Flag is ${currentUser}.`,
         url,
-        dialogTitle: 'Share your Nudge link',
+        dialogTitle: 'Share your Flag link',
       });
     } catch (err) {
       // Closing the share sheet without picking anything also lands here — only fall back if sharing isn't available
@@ -1078,12 +1078,12 @@ export default function App() {
               onReorder={handleReorderUnread}
               emptyMessage={emptyMessage ?? (
                 allMessagesFilter === 'unread'
-                  ? "You're all caught up. New nudges from friends will show up here."
+                  ? "You're all caught up. New flags from friends will show up here."
                   : allMessagesFilter === 'archived'
-                    ? 'Nothing archived. Nudges you archive will wait here.'
+                    ? 'Nothing archived. Flags you archive will wait here.'
                     : activeFolder
                       ? 'This folder is empty. Go to All, then hold a favorite and drag it onto this folder.'
-                      : 'No favorites yet. Open a nudge and tap the star to save it here.'
+                      : 'No favorites yet. Open a flag and tap the star to save it here.'
               )}
               folderOptions={allMessagesFilter === 'favorited' && foldersReady
                 ? { folders, folderOf: (id) => folderOfReminder[id] ?? null, onMove: handleMoveToFolder }
@@ -1101,10 +1101,10 @@ export default function App() {
         <div className="text-center pt-16 pb-8 px-6">
           <div className="text-5xl mb-3" aria-hidden="true">🎉</div>
           <p className="text-lg text-stone-800">You're all caught up</p>
-          <p className="text-sm text-stone-500 mt-1">New nudges from friends will show up here.</p>
+          <p className="text-sm text-stone-500 mt-1">New flags from friends will show up here.</p>
           <button
             onClick={() => setMobileTab('popular')}
-            className="mt-5 px-5 py-2.5 rounded-full bg-orange-600 text-white text-sm active:bg-orange-700"
+            className="mt-5 px-5 py-2.5 rounded-full bg-brand-600 text-white text-sm active:bg-brand-700"
           >
             Explore Popular
           </button>
@@ -1141,8 +1141,8 @@ export default function App() {
             <div className="-mx-4 px-4 flex gap-4 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {newFrom.map(n => (
                 <button key={n.key} onClick={() => selectSender(n.open)} className="shrink-0 w-[60px] flex flex-col items-center">
-                  <div className="rounded-full p-[2.5px] bg-orange-500">
-                    <div className="rounded-full p-[2px] bg-[#FEFBF6]">
+                  <div className="rounded-full p-[2.5px] bg-brand-500">
+                    <div className="rounded-full p-[2px] bg-[#FBF6EC]">
                       <Avatar name={n.avatarName} size={50} />
                     </div>
                   </div>
@@ -1162,7 +1162,7 @@ export default function App() {
   if (!authChecked) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-white">
-        <ImageWithFallback src={nudgeLogo} alt="Nudge" className="h-[300px] w-auto object-contain -my-[90px]" />
+        <ImageWithFallback src={nudgeLogo} alt="Flag" className="h-20 w-auto object-contain" />
         <p className="text-stone-400 text-sm">Loading…</p>
       </div>
     );
@@ -1175,8 +1175,8 @@ export default function App() {
   if (dataLoading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-white">
-        <ImageWithFallback src={nudgeLogo} alt="Nudge" className="h-[300px] w-auto object-contain -my-[90px]" />
-        <p className="text-stone-400 text-sm">Loading your nudges…</p>
+        <ImageWithFallback src={nudgeLogo} alt="Flag" className="h-20 w-auto object-contain" />
+        <p className="text-stone-400 text-sm">Loading your flags…</p>
       </div>
     );
   }
@@ -1185,7 +1185,7 @@ export default function App() {
     <AvatarContext.Provider value={avatars}>
     <div
       className="flex flex-col overflow-hidden"
-      style={{ height: '100%', width: '100%', background: '#FEFBF6', paddingTop: 'env(safe-area-inset-top)' }}
+      style={{ height: '100%', width: '100%', background: '#FBF6EC', paddingTop: 'env(safe-area-inset-top)' }}
     >
       {/* Sticky header area — does not scroll */}
       <div className="shrink-0 max-w-2xl mx-auto px-4 w-full">
@@ -1201,21 +1201,21 @@ export default function App() {
         )}
         {/* Install Prompt */}
         {showInstallPrompt && (
-          <div className="mb-3 p-3 sm:p-4 bg-orange-600 text-white rounded-xl shadow-lg flex items-center justify-between">
+          <div className="mb-3 p-3 sm:p-4 bg-brand-600 text-white rounded-xl shadow-lg flex items-center justify-between">
             <div>
-              <p className="font-medium text-sm sm:text-base">Install Nudge</p>
-              <p className="text-xs sm:text-sm text-orange-100">Add to your home screen for quick access</p>
+              <p className="font-medium text-sm sm:text-base">Install Flag</p>
+              <p className="text-xs sm:text-sm text-brand-100">Add to your home screen for quick access</p>
             </div>
             <div className="flex gap-2">
               <button
                 onClick={() => setShowInstallPrompt(false)}
-                className="px-2 sm:px-3 py-1 bg-orange-700 rounded-lg hover:bg-orange-800 text-xs sm:text-sm"
+                className="px-2 sm:px-3 py-1 bg-brand-700 rounded-lg hover:bg-brand-800 text-xs sm:text-sm"
               >
                 Later
               </button>
               <button
                 onClick={handleInstallClick}
-                className="px-2 sm:px-3 py-1 bg-white text-orange-600 rounded-lg hover:bg-orange-50 text-xs sm:text-sm"
+                className="px-2 sm:px-3 py-1 bg-white text-brand-600 rounded-lg hover:bg-brand-50 text-xs sm:text-sm"
               >
                 Install
               </button>
@@ -1240,9 +1240,9 @@ export default function App() {
                   value={groupNameDraft}
                   onChange={(e) => setGroupNameDraft(e.target.value)}
                   placeholder="Name this group"
-                  className="flex-1 min-w-0 text-lg border-b-2 border-orange-500 focus:outline-none bg-transparent"
+                  className="flex-1 min-w-0 text-lg border-b-2 border-brand-500 focus:outline-none bg-transparent"
                 />
-                <button type="submit" className="text-orange-600 text-sm shrink-0">Save</button>
+                <button type="submit" className="text-brand-600 text-sm shrink-0">Save</button>
               </form>
             ) : (
               <>
@@ -1257,7 +1257,7 @@ export default function App() {
                   <h1 className="text-lg truncate">
                     {selectedGroupKey
                       ? (selectedGroupMeta?.groupName || selectedGroupMeta?.participants.join(', ') || 'Group')
-                      : selectedSender === 'My Reminders' ? 'My Nudges' : selectedSender}
+                      : selectedSender === 'My Reminders' ? 'My Flags' : selectedSender}
                   </h1>
                 </button>
                 {selectedGroupKey && (
@@ -1289,7 +1289,7 @@ export default function App() {
                       onBlur={() => { handleSaveChatNote(selectedChatKey, noteDraft); setEditingNote(false); }}
                       maxLength={80}
                       placeholder="e.g. college roommate"
-                      className="flex-1 min-w-0 text-sm border-b border-orange-400 focus:outline-none bg-transparent"
+                      className="flex-1 min-w-0 text-sm border-b border-brand-400 focus:outline-none bg-transparent"
                     />
                   </form>
                 ) : (
@@ -1315,14 +1315,14 @@ export default function App() {
                   {unreadCount === 0
                     ? "You're all caught up"
                     : [
-                        `${unreadCount} new nudge${unreadCount === 1 ? '' : 's'}`,
+                        `${unreadCount} new flag${unreadCount === 1 ? '' : 's'}`,
                         unreadPriorityCount ? `${unreadPriorityCount} priority` : null,
                       ].filter(Boolean).join(' · ')}
                 </p>
               </div>
             ) : (
               <h1 className="tab-title pt-1 text-[30px] leading-tight text-stone-800">
-                {mobileTab === 'people' ? 'Nudges' : mobileTab === 'popular' ? 'Popular' : 'You'}
+                {mobileTab === 'people' ? 'Flags' : mobileTab === 'popular' ? 'Popular' : 'You'}
               </h1>
             )
           )}
@@ -1334,17 +1334,17 @@ export default function App() {
             {selectedSender === 'My Reminders' ? <span /> : (
               <button
                 onClick={() => selectedGroupMeta ? setQuickSendGroup(selectedGroupMeta.participants) : setQuickSendTo(selectedSender)}
-                className="min-w-0 flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-600 text-white active:bg-orange-700 transition-colors"
+                className="min-w-0 flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 text-white active:bg-brand-700 transition-colors"
               >
                 <Send className="w-4 h-4 shrink-0" />
-                <span className="text-sm truncate">Nudge {selectedGroupMeta ? (selectedGroupMeta.groupName || 'group') : selectedSender}</span>
+                <span className="text-sm truncate">Send {selectedGroupMeta ? (selectedGroupMeta.groupName || 'the group') : selectedSender} a flag</span>
               </button>
             )}
             <button
               onClick={() => setShowArchived(!showArchived)}
               className={`shrink-0 flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
                 showArchived
-                  ? 'bg-orange-100 text-orange-700'
+                  ? 'bg-brand-100 text-brand-700'
                   : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
               }`}
             >
@@ -1363,7 +1363,7 @@ export default function App() {
                   onClick={() => selectFilter(filter)}
                   className={`px-4 py-1.5 rounded-full text-sm transition-colors ${
                     isActive
-                      ? 'bg-orange-600 text-white'
+                      ? 'bg-brand-600 text-white'
                       : 'bg-white border border-stone-300 text-stone-600 hover:bg-stone-50'
                   }`}
                 >
@@ -1441,17 +1441,17 @@ export default function App() {
                   onClick={() => setPopularSubTab('top')}
                   className={`flex-1 px-3 py-2.5 rounded-lg text-sm transition-colors ${
                     popularSubTab === 'top'
-                      ? 'bg-orange-600 text-white'
+                      ? 'bg-brand-600 text-white'
                       : 'bg-white border border-stone-300 text-stone-700 hover:bg-stone-50'
                   }`}
                 >
-                  Most Popular Nudges
+                  Most Popular Flags
                 </button>
                 <button
                   onClick={() => { setPopularSubTab('explore'); setExploreSeed(s => s + 1); }}
                   className={`flex-1 px-3 py-2.5 rounded-lg text-sm transition-colors ${
                     popularSubTab === 'explore'
-                      ? 'bg-orange-600 text-white'
+                      ? 'bg-brand-600 text-white'
                       : 'bg-white border border-stone-300 text-stone-700 hover:bg-stone-50'
                   }`}
                 >
@@ -1462,7 +1462,7 @@ export default function App() {
               {popularSubTab === 'explore' && (
                 <button
                   onClick={() => setExploreSeed(s => s + 1)}
-                  className="mb-3 flex items-center gap-1.5 text-sm text-orange-600 hover:text-orange-700"
+                  className="mb-3 flex items-center gap-1.5 text-sm text-brand-600 hover:text-brand-700"
                 >
                   <TrendingUp className="w-3.5 h-3.5" />
                   Shuffle
@@ -1488,8 +1488,8 @@ export default function App() {
                 onUpvote={handleToggleVote}
                 emptyMessage={
                   popularSubTab === 'top'
-                    ? "No public nudges yet. Mark a nudge \"public\" when sending one to see it show up here."
-                    : "You're all caught up. Nudges you've liked move to Most Popular. Check back later for new ones, or mark one of your own \"Public\" to share it here."
+                    ? "No public flags yet. Mark a flag \"public\" when sending one to see it show up here."
+                    : "You're all caught up. Flags you've liked move to Most Popular. Check back later for new ones, or mark one of your own \"Public\" to share it here."
                 }
               />
             </div>
@@ -1503,8 +1503,8 @@ export default function App() {
                 >
                   <Avatar name={currentUser} size={48} />
                   <div className="text-left flex-1 min-w-0">
-                    <p className="text-base">My Nudges</p>
-                    <p className="text-sm text-stone-500">{myOwnReminders.length} nudges</p>
+                    <p className="text-base">My Flags</p>
+                    <p className="text-sm text-stone-500">{myOwnReminders.length} flags</p>
                   </div>
                 </button>
               )}
@@ -1512,7 +1512,7 @@ export default function App() {
               {/* Individual Contacts */}
               {uniqueContacts.length === 0 && myOwnReminders.length === 0 && (
                 <p className="text-center text-stone-500 py-12 text-sm">
-                  No one here yet. Send someone a nudge to see them show up.
+                  No one here yet. Send someone a flag to see them show up.
                 </p>
               )}
               {uniqueContacts.map(contact => {
@@ -1529,7 +1529,7 @@ export default function App() {
 
                 return (
                   <SwipeRow key={contact} actions={chatSwipeActions('contact:' + contact, contact, contact)}>
-                    <div className="flex items-center gap-1 rounded-xl" style={{ background: '#FEFBF6' }}>
+                    <div className="flex items-center gap-1 rounded-xl" style={{ background: '#FBF6EC' }}>
                       <button
                         onClick={() => selectSender(contact)}
                         className="flex-1 min-w-0 px-3 py-3 flex items-center gap-3 active:bg-stone-100 transition-colors rounded-xl text-left"
@@ -1537,7 +1537,7 @@ export default function App() {
                         <div className="relative shrink-0">
                           <Avatar name={contact} size={48} />
                           {unreadCount > 0 && (
-                            <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-orange-600 text-white text-[10px] flex items-center justify-center border-2 border-white">
+                            <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-brand-600 text-white text-[10px] flex items-center justify-center border-2 border-white">
                               {unreadCount}
                             </div>
                           )}
@@ -1549,14 +1549,14 @@ export default function App() {
                           </p>
                           <p className="text-sm text-stone-500 truncate">
                             {chatNotes['contact:' + contact] && <span className="italic">{chatNotes['contact:' + contact]} · </span>}
-                            {count} nudges
+                            {count} flags
                           </p>
                         </div>
                       </button>
                       {/* Silence and Archive live behind a swipe left */}
                       <button
                         onClick={() => setQuickSendTo(contact)}
-                        className="p-2.5 mr-1 rounded-lg text-orange-600 hover:bg-orange-50 active:bg-orange-100 shrink-0"
+                        className="p-2.5 mr-1 rounded-lg text-brand-600 hover:bg-brand-50 active:bg-brand-100 shrink-0"
                         title={`Send to ${contact}`}
                       >
                         <Send className="w-4 h-4" />
@@ -1575,13 +1575,13 @@ export default function App() {
                   <button
                     onClick={() => selectSender('group:' + group.key)}
                     className="w-full px-3 py-3 flex items-center gap-3 active:bg-stone-100 transition-colors rounded-xl text-left"
-                    style={{ background: '#FEFBF6' }}
+                    style={{ background: '#FBF6EC' }}
                   >
                     <div className="relative shrink-0 w-11 h-11">
                       {initials.map((letter, i) => (
                         <div
                           key={i}
-                          className="absolute w-7 h-7 rounded-full bg-gradient-to-br from-amber-400 to-rose-500 flex items-center justify-center text-white text-[10px] border-2 border-white"
+                          className="absolute w-7 h-7 rounded-full bg-gradient-to-br from-brand-400 to-brand-700 flex items-center justify-center text-white text-[10px] border-2 border-white"
                           style={{ left: i * 10, top: i === 1 ? 10 : 0, zIndex: 3 - i }}
                         >
                           {letter}
@@ -1593,7 +1593,7 @@ export default function App() {
                         </div>
                       )}
                       {group.unread > 0 && (
-                        <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-orange-600 text-white text-[10px] flex items-center justify-center border-2 border-white z-10">
+                        <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-brand-600 text-white text-[10px] flex items-center justify-center border-2 border-white z-10">
                           {group.unread}
                         </div>
                       )}
@@ -1605,7 +1605,7 @@ export default function App() {
                       </p>
                       <p className="text-sm text-stone-500 truncate">
                         {chatNotes['group:' + group.key] && <span className="italic">{chatNotes['group:' + group.key]} · </span>}
-                        {group.count} nudges &middot; {group.participants.length + 1} people
+                        {group.count} flags &middot; {group.participants.length + 1} people
                       </p>
                     </div>
                   </button>
@@ -1628,14 +1628,14 @@ export default function App() {
                       <span className="text-sm text-stone-600 truncate flex-1 min-w-0">{chatLabel(name)}</span>
                       <button
                         onClick={() => handleRestoreContact(name)}
-                        className="text-xs text-orange-600 hover:text-orange-700 underline shrink-0"
+                        className="text-xs text-brand-600 hover:text-brand-700 underline shrink-0"
                         title={`Restore ${chatLabel(name)}`}
                       >
                         Restore
                       </button>
                       <button
                         onClick={() => {
-                          if (confirm(`Delete your chat with ${chatLabel(name)}? It disappears from your Nudges tab for good. The nudges themselves aren't deleted for the other people in them.`)) {
+                          if (confirm(`Delete your chat with ${chatLabel(name)}? It disappears from your Flags tab for good. The flags themselves aren't deleted for the other people in them.`)) {
                             handleDeleteContact(name);
                           }
                         }}
@@ -1658,7 +1658,7 @@ export default function App() {
                 </button>
                 <div className="min-w-0 flex-1">
                   <p className="truncate">{currentUser}</p>
-                  <button onClick={() => setShowAvatarPicker(true)} className="text-sm text-orange-600">
+                  <button onClick={() => setShowAvatarPicker(true)} className="text-sm text-brand-600">
                     Change picture
                   </button>
                 </div>
@@ -1666,14 +1666,14 @@ export default function App() {
               <div className="bg-white rounded-xl border border-stone-200 p-5">
                 <p className="text-base">Invite friends</p>
                 <p className="text-sm text-stone-500 mt-1">
-                  Send your Nudge link in Messages. Friends with Nudge tap it to open a new nudge already addressed to you.
+                  Send your Flag link in Messages. Friends with Flag tap it to open a new flag already addressed to you.
                 </p>
                 <button
                   onClick={handleShareLink}
-                  className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-orange-600 text-white active:bg-orange-700"
+                  className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-brand-600 text-white active:bg-brand-700"
                 >
                   <Share2 className="w-4 h-4" />
-                  Share my Nudge link
+                  Share my Flag link
                 </button>
               </div>
               <button
@@ -1695,13 +1695,13 @@ export default function App() {
       >
       {([
         { id: 'inbox' as const, label: 'Home', icon: InboxIcon, badge: unreadCount },
-        { id: 'people' as const, label: 'Nudges', icon: Users, badge: 0 },
+        { id: 'people' as const, label: 'Flags', icon: Users, badge: 0 },
       ]).map(tab => (
         <button
           key={tab.id}
           onClick={() => { selectSender(null); setMobileTab(tab.id); }}
           className={`flex-1 flex flex-col items-center gap-1 py-2.5 relative transition-colors ${
-            !selectedSender && mobileTab === tab.id ? 'text-orange-600' : 'text-stone-400'
+            !selectedSender && mobileTab === tab.id ? 'text-brand-600' : 'text-stone-400'
           }`}
         >
           <tab.icon className="w-5 h-5" />
@@ -1717,9 +1717,9 @@ export default function App() {
       <button
         onClick={() => setShowNewReminderModal(true)}
         className="flex-1 flex flex-col items-center justify-center"
-        title="Send a nudge"
+        title="Send a flag"
       >
-        <span className="w-11 h-11 rounded-full bg-orange-600 flex items-center justify-center -mt-4 shadow-lg shadow-orange-600/30 active:bg-orange-700 transition-colors">
+        <span className="w-11 h-11 rounded-full bg-brand-600 flex items-center justify-center -mt-4 shadow-lg shadow-brand-600/30 active:bg-brand-700 transition-colors">
           <img src={nIconTonal} alt="" className="w-6 h-6 object-contain" />
         </span>
       </button>
@@ -1727,7 +1727,7 @@ export default function App() {
       <button
         onClick={() => { selectSender(null); setMobileTab('popular'); }}
         className={`flex-1 flex flex-col items-center gap-1 py-2.5 transition-colors ${
-          !selectedSender && mobileTab === 'popular' ? 'text-orange-600' : 'text-stone-400'
+          !selectedSender && mobileTab === 'popular' ? 'text-brand-600' : 'text-stone-400'
         }`}
       >
         <TrendingUp className="w-5 h-5" />
@@ -1737,7 +1737,7 @@ export default function App() {
       <button
         onClick={() => { selectSender(null); setMobileTab('you'); }}
         className={`flex-1 flex flex-col items-center gap-1 py-2.5 transition-colors ${
-          !selectedSender && mobileTab === 'you' ? 'text-orange-600' : 'text-stone-400'
+          !selectedSender && mobileTab === 'you' ? 'text-brand-600' : 'text-stone-400'
         }`}
       >
         <User className="w-5 h-5" />

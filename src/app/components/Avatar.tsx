@@ -52,7 +52,7 @@ export function Avatar({ name, size, value, className = '' }: AvatarProps) {
   }
   return (
     <div
-      className={`${base} bg-gradient-to-br from-amber-400 to-rose-500 text-white`}
+      className={`${base} bg-gradient-to-br from-brand-400 to-brand-700 text-white`}
       style={{ ...style, fontSize: Math.max(9, size * 0.36) }}
       aria-label={name}
     >

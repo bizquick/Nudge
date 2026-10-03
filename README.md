@@ -1,4 +1,4 @@
-# Nudge
+# Flag
 
 Send links, music, and videos to people you know — they check them out on their own time. Ported from your Figma Make file, now wired to a real database so nothing resets between sessions.
 
@@ -9,7 +9,7 @@ Send links, music, and videos to people you know — they check them out on thei
 - **Fixed the PWA install setup.** The manifest and service worker Figma Make scaffolded were pointing at placeholder icon files (they were actually broken — text files with a `.png` extension) and a service worker written for `npm run dev`, not a built app. Both are replaced with a proper build-time PWA setup (via `vite-plugin-pwa`) plus real icons, so "Install app" / "Add to Home Screen" works correctly on the deployed build.
 - **Deployment automation.** A GitHub Actions workflow builds and publishes the app to GitHub Pages automatically on every push.
 
-Everything else — the layout, the Nudge branding, the sidebar, reminders/reactions/archive/favorite behavior — is exactly what was in your Figma file.
+Everything else — the layout, the original branding (now Flag), the sidebar, reminders/reactions/archive/favorite behavior — is exactly what was in your Figma file.
 
 ## 1. Database setup
 

@@ -185,7 +185,7 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
 
     if (trimmed) return { title: trimmed, previewImage };
     if (content.trim()) return { title: content.trim().slice(0, 60), previewImage };
-    return { title: 'Untitled nudge', previewImage };
+    return { title: 'Untitled flag', previewImage };
   };
 
   const fallbackTitleFromUrl = (u: string) => {
@@ -248,7 +248,7 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
       : people.length === 1
         ? `Send to ${people[0]}`
         : willSaveToSelf
-          ? 'Save to My Nudges'
+          ? 'Save to My Flags'
           : 'Send';
 
   const clearAttachment = () => {
@@ -272,11 +272,10 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
         {/* Header */}
         <div className="px-4 py-3.5 border-b border-stone-200 flex items-center justify-between shrink-0">
           {initialValues ? (
-            <h3 className="text-lg">Forward nudge</h3>
+            <h3 className="text-lg">Forward flag</h3>
           ) : (
-            // The logo image has empty space built in; the negative margins trim it so it sits snugly in the header
             <h3 className="h-8 flex items-center">
-              <img src={nudgeLogo} alt="New nudge" className="h-[108px] w-auto object-contain -my-[38px] -ml-[27px]" />
+              <img src={nudgeLogo} alt="New flag" className="h-7 w-auto object-contain" />
             </h3>
           )}
           <button
@@ -296,16 +295,16 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-sm text-stone-500">To</span>
               {recipient ? (
-                <span className="px-2.5 py-1 rounded-full bg-orange-50 text-orange-800 text-sm">{recipient}</span>
+                <span className="px-2.5 py-1 rounded-full bg-brand-50 text-brand-800 text-sm">{recipient}</span>
               ) : (
                 <>
                   {selectedRecipients.map(name => (
-                    <span key={name} className="flex items-center gap-1 pl-2.5 pr-1.5 py-1 rounded-full bg-orange-50 text-orange-800 text-sm">
+                    <span key={name} className="flex items-center gap-1 pl-2.5 pr-1.5 py-1 rounded-full bg-brand-50 text-brand-800 text-sm">
                       {name}
                       <button
                         type="button"
                         onClick={() => removeRecipient(name)}
-                        className="text-orange-400 hover:text-orange-700"
+                        className="text-brand-400 hover:text-brand-700"
                         aria-label={`Remove ${name}`}
                       >
                         <X className="w-3.5 h-3.5" />
@@ -335,7 +334,7 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
                           aria-checked={sendMode === mode}
                           onClick={() => setSendMode(mode)}
                           className={`px-2.5 py-1 rounded-md transition-colors ${
-                            sendMode === mode ? 'bg-orange-600 text-white' : 'text-stone-600'
+                            sendMode === mode ? 'bg-brand-600 text-white' : 'text-stone-600'
                           }`}
                         >
                           {label}
@@ -370,7 +369,7 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
                 )}
                 {matches.length === 0 && !exactMatch && (
                   <p className="px-3 py-2 text-xs text-stone-500">
-                    {lookingUp ? 'Looking…' : "No one by that name. To add someone new, type their exact Nudge name, or ask them for their Nudge link."}
+                    {lookingUp ? 'Looking…' : "No one by that name. To add someone new, type their exact username, or ask them for their Flag link."}
                   </p>
                 )}
               </div>
@@ -387,7 +386,7 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
               onChange={handleFileSelected}
               className="hidden"
             />
-            <div className="flex items-center gap-2 border border-stone-300 rounded-xl px-3 py-2.5 focus-within:ring-2 focus-within:ring-orange-500 focus-within:border-transparent">
+            <div className="flex items-center gap-2 border border-stone-300 rounded-xl px-3 py-2.5 focus-within:ring-2 focus-within:ring-brand-500 focus-within:border-transparent">
               {previewImage ? (
                 <img src={previewImage} alt="" className="w-6 h-6 rounded object-cover shrink-0" />
               ) : (
@@ -418,7 +417,7 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
                     disabled={uploading}
-                    className="text-orange-600 hover:text-orange-700 disabled:opacity-50 shrink-0"
+                    className="text-brand-600 hover:text-brand-700 disabled:opacity-50 shrink-0"
                     aria-label="Upload a photo or file"
                   >
                     {uploading ? <Loader2 className="w-[18px] h-[18px] animate-spin" /> : <Paperclip className="w-[18px] h-[18px]" />}
@@ -437,7 +436,7 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder={isTodo ? 'List title' : url.trim() && !uploadedFileName ? "Title (or we'll use the link's)" : 'Title'}
-              className="w-full pb-2.5 text-base font-medium bg-transparent border-b border-stone-200 focus:outline-none focus:border-orange-400 placeholder:text-stone-400 placeholder:font-normal"
+              className="w-full pb-2.5 text-base font-medium bg-transparent border-b border-stone-200 focus:outline-none focus:border-brand-400 placeholder:text-stone-400 placeholder:font-normal"
             />
             {/* A divider line under the title makes it clear where each field starts */}
             {isTodo ? (
@@ -476,7 +475,7 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
                 <button
                   type="button"
                   onClick={() => setTodoLines(prev => [...prev, ''])}
-                  className="flex items-center gap-1.5 pt-1 text-sm text-orange-600"
+                  className="flex items-center gap-1.5 pt-1 text-sm text-brand-600"
                 >
                   <Plus className="w-4 h-4" /> Add item
                 </button>
@@ -502,7 +501,7 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
                 aria-pressed={type === value}
                 onClick={() => setType(type === value ? null : value)}
                 className={`shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs whitespace-nowrap ring-inset transition-shadow ${categoryColors[value]} ${
-                  type === value ? 'ring-2 ring-orange-600' : ''
+                  type === value ? 'ring-2 ring-brand-600' : ''
                 }`}
               >
                 <Icon className="w-3.5 h-3.5" />
@@ -519,11 +518,11 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
                 aria-pressed={isSaveToSelf}
                 onClick={() => setIsSaveToSelf(v => !v)}
                 className={`shrink-0 whitespace-nowrap flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition-colors ${
-                  isSaveToSelf ? 'border-orange-600 bg-orange-50 text-orange-700' : 'border-stone-300 text-stone-600'
+                  isSaveToSelf ? 'border-brand-600 bg-brand-50 text-brand-700' : 'border-stone-300 text-stone-600'
                 }`}
               >
                 <Bookmark className="w-3.5 h-3.5" />
-                Save to My Nudges
+                Save to My Flags
               </button>
             )}
             <button
@@ -531,7 +530,7 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
               aria-pressed={isPublic}
               onClick={() => setIsPublic(v => !v)}
               className={`shrink-0 whitespace-nowrap flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition-colors ${
-                isPublic ? 'border-orange-600 bg-orange-50 text-orange-700' : 'border-stone-300 text-stone-600'
+                isPublic ? 'border-brand-600 bg-brand-50 text-brand-700' : 'border-stone-300 text-stone-600'
               }`}
             >
               <Globe className="w-3.5 h-3.5" />
@@ -542,7 +541,7 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
               aria-pressed={prioritized}
               onClick={() => setPrioritized(v => !v)}
               className={`shrink-0 whitespace-nowrap flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition-colors ${
-                prioritized ? 'border-orange-600 bg-orange-50 text-orange-700' : 'border-stone-300 text-stone-600'
+                prioritized ? 'border-brand-600 bg-brand-50 text-brand-700' : 'border-stone-300 text-stone-600'
               }`}
             >
               <span aria-hidden="true">🤯</span>
@@ -553,7 +552,7 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
               aria-pressed={isTodo}
               onClick={() => setIsTodo(v => !v)}
               className={`shrink-0 whitespace-nowrap flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition-colors ${
-                isTodo ? 'border-orange-600 bg-orange-50 text-orange-700' : 'border-stone-300 text-stone-600'
+                isTodo ? 'border-brand-600 bg-brand-50 text-brand-700' : 'border-stone-300 text-stone-600'
               }`}
             >
               <ListChecks className="w-3.5 h-3.5" />
@@ -567,7 +566,7 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
           <button
             type="submit"
             disabled={!canSend}
-            className="w-full py-2.5 px-4 bg-orange-600 text-white rounded-xl hover:bg-orange-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+            className="w-full py-2.5 px-4 bg-brand-600 text-white rounded-xl hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
           >
             <Send className="w-4 h-4" />
             <span className="truncate">{sendLabel}</span>

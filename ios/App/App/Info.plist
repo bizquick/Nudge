@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>Nudge</string>
+	<string>Flag</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -27,9 +27,9 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>Nudge uses your camera so you can take a photo to send to friends.</string>
+	<string>Flag uses your camera so you can take a photo to send to friends.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Nudge lets you pick photos and videos from your library to send to friends.</string>
+	<string>Flag lets you pick photos and videos from your library to send to friends.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

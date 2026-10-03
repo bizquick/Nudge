@@ -4,6 +4,34 @@
 @import './default_theme.css';
 @import './globals.css';
 
+/* Flag brand colors — use as bg-brand-600, text-gold-300, bg-cream, text-ink, etc.
+   brand-600 is the exact forest green (#1F5C3F) and gold-300 the exact gold (#E8C77A);
+   the other steps are lighter and darker versions for hovers, tints and borders. */
+@theme {
+  --color-brand-50: #EEF5F1;
+  --color-brand-100: #D5E7DC;
+  --color-brand-200: #ABCFBA;
+  --color-brand-300: #7DB394;
+  --color-brand-400: #4C9070;
+  --color-brand-500: #2E7552;
+  --color-brand-600: #1F5C3F;
+  --color-brand-700: #194B34;
+  --color-brand-800: #143B29;
+  --color-brand-900: #0E2A1D;
+
+  --color-gold-50: #FDF8EC;
+  --color-gold-100: #F9EDCF;
+  --color-gold-200: #F2DDA6;
+  --color-gold-300: #E8C77A;
+  --color-gold-400: #DDB257;
+  --color-gold-500: #C8963A;
+  --color-gold-600: #A9792A;
+  --color-gold-700: #845E22;
+
+  --color-cream: #FBF6EC;
+  --color-ink: #2B2620;
+}
+
 /* iOS Safari/WebKit automatically zooms the whole page in when a focused
    input's font-size is under 16px (trying to make tiny text readable) —
    this also throws off the keyboard's focus timing. Forcing every input to
