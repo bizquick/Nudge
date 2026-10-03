@@ -8,7 +8,7 @@ interface AuthScreenProps {
   onSignedIn: (displayName: string) => void;
 }
 
-type Mode = 'signup' | 'login' | 'forgot' | 'reset';
+type Mode = 'signup' | 'login' | 'forgot' | 'reset' | 'forgotName';
 
 export function AuthScreen({ onSignedIn }: AuthScreenProps) {
   const [mode, setMode] = useState<Mode>('signup');
@@ -143,7 +143,7 @@ export function AuthScreen({ onSignedIn }: AuthScreenProps) {
     await finishLogin(data.user?.id);
   };
 
-  // Forgot password, step 1: email them a 6-digit code (the email also reminds them of their display name)
+  // Forgot password, step 1: email them a code
   const handleSendCode = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -159,7 +159,31 @@ export function AuthScreen({ onSignedIn }: AuthScreenProps) {
       return;
     }
     switchMode('reset');
-    setNotice(`If ${email.trim()} has a Nudge account, we just emailed it a 6-digit code.`);
+    setNotice(`If ${email.trim()} has a Nudge account, we just emailed it a code.`);
+  };
+
+  // Forgot your Nudge name: email it to them — no password change involved.
+  // (This uses Supabase's "Magic Link" email, whose template just states the name.)
+  const handleSendName = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    if (!email.trim()) {
+      setError('Enter the email you signed up with.');
+      return;
+    }
+    setLoading(true);
+    const { error: sendError } = await supabase.auth.signInWithOtp({
+      email: email.trim(),
+      options: { shouldCreateUser: false },
+    });
+    setLoading(false);
+    // "No such account" is deliberately not revealed — same message either way
+    if (sendError && !/not found|signups not allowed/i.test(sendError.message)) {
+      setError(sendError.message);
+      return;
+    }
+    switchMode('login');
+    setNotice(`If ${email.trim()} has a Nudge account, we just emailed your Nudge name to it.`);
   };
 
   // Forgot password, step 2: the code proves it's them, then save the new password
@@ -224,9 +248,9 @@ export function AuthScreen({ onSignedIn }: AuthScreenProps) {
     );
   }
 
-  const isRecovery = mode === 'forgot' || mode === 'reset';
-  const onSubmit = mode === 'signup' ? handleSignUp : mode === 'login' ? handleLogIn : mode === 'forgot' ? handleSendCode : handleResetPassword;
-  const submitLabel = mode === 'signup' ? 'Create account' : mode === 'login' ? 'Log in' : mode === 'forgot' ? 'Email me a code' : 'Save new password';
+  const isRecovery = mode === 'forgot' || mode === 'reset' || mode === 'forgotName';
+  const onSubmit = mode === 'signup' ? handleSignUp : mode === 'login' ? handleLogIn : mode === 'forgot' ? handleSendCode : mode === 'forgotName' ? handleSendName : handleResetPassword;
+  const submitLabel = mode === 'signup' ? 'Create account' : mode === 'login' ? 'Log in' : mode === 'forgot' ? 'Email me a code' : mode === 'forgotName' ? 'Email me my name' : 'Save new password';
 
   return shell(
     <>
@@ -238,8 +262,10 @@ export function AuthScreen({ onSignedIn }: AuthScreenProps) {
       {isRecovery ? (
         <p className="mb-3 text-sm text-stone-700 text-left">
           {mode === 'forgot'
-            ? "Forgot your password or your Nudge name? Enter your email and we'll send a code to set a new password. The email also tells you your name."
-            : 'Enter the code from the email, then choose a new password.'}
+            ? "Enter your email and we'll send you a code to set a new password."
+            : mode === 'forgotName'
+              ? "Enter your email and we'll send you your Nudge name. Your password stays the same."
+              : 'Enter the code from the email, then choose a new password.'}
         </p>
       ) : (
         <div className="flex mb-4 rounded-lg border border-stone-200 overflow-hidden">
@@ -294,7 +320,7 @@ export function AuthScreen({ onSignedIn }: AuthScreenProps) {
 
         {mode === 'reset' && (
           <div>
-            <label htmlFor="auth-code" className={labelClass}>6-digit code from the email</label>
+            <label htmlFor="auth-code" className={labelClass}>Code from the email</label>
             <input
               id="auth-code"
               type="text"
@@ -302,13 +328,13 @@ export function AuthScreen({ onSignedIn }: AuthScreenProps) {
               autoComplete="one-time-code"
               value={code}
               onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
-              placeholder="123456"
+              placeholder="Enter the code"
               className={`${inputClass} tracking-widest`}
             />
           </div>
         )}
 
-        {mode !== 'forgot' && (
+        {mode !== 'forgot' && mode !== 'forgotName' && (
           <div>
             <label htmlFor="auth-password" className={labelClass}>{mode === 'reset' ? 'New password' : 'Password'}</label>
             <input
@@ -353,9 +379,15 @@ export function AuthScreen({ onSignedIn }: AuthScreenProps) {
 
       <div className="mt-3 flex flex-col items-center gap-2 text-sm">
         {mode === 'login' && (
-          <button onClick={() => switchMode('forgot')} className="text-orange-600">
-            Forgot your password or name?
-          </button>
+          <div className="flex items-center gap-4">
+            <button onClick={() => switchMode('forgot')} className="text-orange-600">
+              Forgot password?
+            </button>
+            <span className="text-stone-300" aria-hidden="true">|</span>
+            <button onClick={() => switchMode('forgotName')} className="text-orange-600">
+              Forgot Nudge name?
+            </button>
+          </div>
         )}
         {mode === 'reset' && (
           <button onClick={() => switchMode('forgot')} className="text-orange-600">
