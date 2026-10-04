@@ -7,9 +7,12 @@ interface ProfileSheetProps {
   isYou: boolean;
   onSendNudge: () => void;
   onClose: () => void;
+  blocked?: boolean;
+  onBlock?: () => void;
+  onUnblock?: () => void;
 }
 
-export function ProfileSheet({ name, isYou, onSendNudge, onClose }: ProfileSheetProps) {
+export function ProfileSheet({ name, isYou, onSendNudge, onClose, blocked, onBlock, onUnblock }: ProfileSheetProps) {
   return (
     <div
       className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center"
@@ -31,14 +34,26 @@ export function ProfileSheet({ name, isYou, onSendNudge, onClose }: ProfileSheet
           <Avatar name={name} size={96} />
         </div>
         <p className="mt-3 text-2xl text-stone-900 break-words">{name}</p>
-        <p className="text-sm text-stone-500 mt-0.5">{isYou ? 'This is you' : 'On Addly'}</p>
-        {!isYou && (
+        <p className="text-sm text-stone-500 mt-0.5">{isYou ? 'This is you' : blocked ? 'Blocked' : 'On Addly'}</p>
+        {!isYou && !blocked && (
           <button
             onClick={onSendNudge}
             className="mt-5 w-full h-12 rounded-xl bg-brand-600 text-white flex items-center justify-center gap-2 active:bg-brand-700"
           >
             <Send className="w-4 h-4" />
             Send {name} a nudge
+          </button>
+        )}
+        {/* Blocking: you won't get their nudges, messages, or notifications. They aren't told. */}
+        {!isYou && (blocked ? onUnblock : onBlock) && (
+          <button
+            onClick={() => {
+              if (blocked) { onUnblock?.(); onClose(); return; }
+              if (confirm(`Block ${name}? You won't get nudges, messages, or notifications from them. They won't be told.`)) { onBlock?.(); onClose(); }
+            }}
+            className={`mt-3 w-full h-11 rounded-xl text-sm ${blocked ? 'border border-stone-300 text-stone-700' : 'text-red-600'}`}
+          >
+            {blocked ? `Unblock ${name}` : `Block ${name}`}
           </button>
         )}
       </div>

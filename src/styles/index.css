@@ -33,6 +33,13 @@
   --color-notify: #2F6FB7;
   --color-notify-light: #E3EDF8;
 
+  /* Nudge requests (someone new wants to send you nudges): a soft apricot that sits
+     between the cream and the gold, so requests never look like real nudges. */
+  --color-request-50: #FDF1E7;
+  --color-request-100: #FAE2CF;
+  --color-request-300: #EDB38A;
+  --color-request-700: #9A4E1C;
+
   --color-cream: #FBF6EC;
   --color-ink: #2B2620;
 }

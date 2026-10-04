@@ -50,6 +50,7 @@ begin
     union all select username, created_at from reminder_reactions
     union all select owner_name, updated_at from device_tokens
     union all select p.display_name, nr.seen_at from nudge_reads nr join profiles p on p.id = nr.owner_id
+    union all select owner_name, coalesce(checked_at, popular_checked_at) from nudge_user_state
   ),
   days as (
     select generate_series(current_date - 29, current_date, interval '1 day')::date as d
@@ -86,11 +87,17 @@ begin
     ),
     'engagement', jsonb_build_object(
       'shared', (select count(*) from shared),
-      'checked', (select count(*) from shared where checked_out),
+      -- checked = at least one recipient checked it (each person's check is their own now)
+      'checked', (select count(*) from shared sh where sh.checked_out or exists (
+        select 1 from nudge_user_state s where s.reminder_id = sh.id and s.checked_at is not null and s.owner_name <> sh.sender)),
       'median_minutes_to_check', (
-        select round((percentile_cont(0.5) within group (
-          order by extract(epoch from (checked_at - created_at)) / 60))::numeric, 1)
-        from shared where checked_at is not null and checked_at >= created_at),
+        select round((percentile_cont(0.5) within group (order by m))::numeric, 1)
+        from (
+          select extract(epoch from (min(s.checked_at) - sh.created_at)) / 60 as m
+          from shared sh join nudge_user_state s on s.reminder_id = sh.id
+          where s.checked_at is not null and s.owner_name <> sh.sender and s.checked_at >= sh.created_at
+          group by sh.id, sh.created_at
+        ) first_checks),
       'messages_total', (select count(*) from messages),
       'messages_7d', (select count(*) from messages where created_at > now() - interval '7 days'),
       'reactions_total', (select count(*) from reminder_reactions),

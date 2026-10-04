@@ -1,10 +1,11 @@
 import { Globe, Music, Video, Type as TypeIcon, Sparkles, UtensilsCrossed, Lightbulb, ExternalLink, Check, MessageCircle, Send, Archive, Star, SmilePlus, Pencil, Forward, Heart, Globe2, FolderInput, BellOff, ListChecks, FileText } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { Reminder, Message } from '../App';
 import type { Folder } from './FolderBar';
 import { Avatar, ProfileLink } from './Avatar';
 import { CATEGORY_LABELS } from './SortMenu';
 import { PhotoViewer } from './PhotoViewer';
+import { TodoEditor } from './TodoEditor';
 
 // lucide-react doesn't have a literal money-bag glyph, so this renders the
 // emoji instead, matching the one used in the send/compose screen.
@@ -46,6 +47,14 @@ interface ReminderCardProps {
   /** A checked nudge with messages you haven't seen yet */
   hasNewMessages?: boolean;
   onToggleTodoComplete?: (reminderId: string) => void;
+  onTodoEdit?: (reminderId: string, op: 'toggle' | 'add' | 'edit' | 'delete', itemId?: string, text?: string) => void;
+  /** Popular/Explore: anyone can check (privately, just for themselves) and favorite */
+  anyoneCanCheck?: boolean;
+  /** You sent this, and these people haven't accepted your nudge request yet */
+  pendingRecipients?: string[];
+  onWithdraw?: (reminderId: string) => void;
+  /** Open the messages straight away (came from a message notification) */
+  openMessages?: boolean;
 }
 
 // "Today 6:45 PM", "Yesterday 9:02 AM", "Sep 3, 6:45 PM", "Sep 3, 2025, 6:45 PM"
@@ -101,7 +110,12 @@ export function ReminderCard({
   rich,
   hideCheck,
   hasNewMessages: hasUnseenMessages,
-  onToggleTodoComplete
+  onToggleTodoComplete,
+  onTodoEdit,
+  anyoneCanCheck,
+  pendingRecipients,
+  onWithdraw,
+  openMessages
 }: ReminderCardProps) {
   const todos = reminder.todoItems;
   const todosDone = todos ? todos.filter(t => t.done).length : 0;
@@ -120,13 +134,18 @@ export function ReminderCard({
   // To-do lists: everyone in it taps Complete; it's checked once all of them have
   const everyone = Array.from(new Set([reminder.sender, ...reminder.recipients]));
   const iCompleted = reminder.completedBy.includes(currentUser);
+  // Checks are personal: you check what was sent to you. On something you only sent,
+  // "Checked" appears once the people you sent it to have checked it.
+  const sentOnlyByMe = reminder.sender === currentUser && !reminder.recipients.includes(currentUser);
+  const canCheck = (isParticipant || !!anyoneCanCheck) && !(sentOnlyByMe && !anyoneCanCheck);
+  const waitingOn = reminder.sender === currentUser ? (pendingRecipients ?? []) : [];
 
   // Small line at the top of the card: when it was sent, and when it was checked
   const stampLine = (
     <p className={`text-[11px] leading-4 text-stone-400 truncate ${rich ? 'mb-1.5' : 'mb-1'} ${flipped ? 'text-right' : ''}`}>
       {[
         `Sent ${stampTime(reminder.createdAt)}`,
-        isParticipant && reminder.checkedOut
+        (isParticipant || anyoneCanCheck) && reminder.checkedOut
           ? `${todos ? 'Completed' : 'Checked'}${reminder.checkedAt ? ' ' + stampTime(reminder.checkedAt) : ''}`
           : null,
       ].filter(Boolean).join(' · ')}
@@ -151,6 +170,7 @@ export function ReminderCard({
     </button>
   );
   const [showMessages, setShowMessages] = useState(false);
+  useEffect(() => { if (openMessages && isSelected) setShowMessages(true); }, [openMessages, isSelected]);
   const [newMessage, setNewMessage] = useState('');
   const [showReactionPicker, setShowReactionPicker] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -260,6 +280,23 @@ export function ReminderCard({
         onClick={() => onSelect(reminder.id)}
       >
         {stampLine}
+        {/* Sent to someone who hasn't accepted you yet: they can't see it until they do */}
+        {waitingOn.length > 0 && (
+          <div className="mb-2 -mt-0.5 flex items-center gap-2 rounded-lg bg-request-50 border border-request-300 px-2.5 py-1.5" onClick={(e) => e.stopPropagation()}>
+            <p className="flex-1 min-w-0 text-[12px] leading-4 text-request-700">
+              {waitingOn.length === 1 ? waitingOn[0] : waitingOn.join(', ')} {waitingOn.length === 1 ? "hasn't" : "haven't"} accepted your nudge request yet
+            </p>
+            {onWithdraw && (
+              <button
+                type="button"
+                onClick={() => { if (confirm('Withdraw this nudge? It will be deleted for everyone.')) onWithdraw(reminder.id); }}
+                className="shrink-0 text-[12px] font-medium text-request-700 underline"
+              >
+                Withdraw
+              </button>
+            )}
+          </div>
+        )}
         {!isSelected && rich ? (
           <div className="flex items-center gap-3">
             {/* Big tile: the link's preview image, or the category / to-do icon */}
@@ -358,7 +395,7 @@ export function ReminderCard({
           <>
             <div className={`flex items-center gap-3 mb-3 ${flipped ? 'flex-row-reverse' : ''}`}>
               {/* To-do lists use the Complete buttons below instead */}
-              {isParticipant && !hideCheck && !todos && <button
+              {canCheck && !hideCheck && !todos && <button
                 onClick={(e) => {
                   e.stopPropagation();
                   onToggleCheckedOut(reminder.id);
@@ -504,34 +541,13 @@ export function ReminderCard({
               </div>
             )}
             {todos ? (
-              // To-do list nudge: tap a bubble to tick it off — everyone in the nudge sees it
-              <ul className="mt-2 mb-3 space-y-1" onClick={(e) => e.stopPropagation()}>
-                {todos.map((item, i) => (
-                  <li key={i}>
-                    <button
-                      type="button"
-                      role="checkbox"
-                      aria-checked={item.done}
-                      onClick={() => onToggleTodo?.(reminder.id, i)}
-                      className="w-full flex items-center gap-3 py-1.5 text-left"
-                    >
-                      <span className={`w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
-                        item.done ? 'bg-green-500 border-green-500 text-white' : 'border-stone-300 bg-white'
-                      }`}>
-                        {item.done && <Check className="w-3.5 h-3.5" />}
-                      </span>
-                      <span className={`flex-1 min-w-0 ${item.done ? 'text-stone-400 line-through' : 'text-stone-800'}`}>{item.text}</span>
-                      {/* Who ticked it off */}
-                      {item.done && item.by && (
-                        <span className="shrink-0 flex items-center gap-1 text-[11px] text-stone-500" title={item.at ? new Date(item.at).toLocaleString() : undefined}>
-                          <Avatar name={item.by} size={16} profile />
-                          {item.by === currentUser ? 'You' : <ProfileLink name={item.by}>{item.by}</ProfileLink>}
-                        </span>
-                      )}
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              <TodoEditor
+                items={todos}
+                currentUser={currentUser}
+                canEdit={isParticipant}
+                onToggle={(i) => onToggleTodo?.(reminder.id, i)}
+                onEdit={onTodoEdit ? (op, itemId, text) => onTodoEdit(reminder.id, op, itemId, text) : undefined}
+              />
             ) : (
               <p className="text-stone-700 mb-3">{reminder.content}</p>
             )}
@@ -742,7 +758,7 @@ export function ReminderCard({
               </div>
 
               {/* Favorite Button */}
-              {isParticipant && <button
+              {(isParticipant || anyoneCanCheck) && <button
                 onClick={(e) => {
                   e.stopPropagation();
                   onToggleFavorite(reminder.id);

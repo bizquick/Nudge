@@ -40,9 +40,14 @@ async function apnsJwt(): Promise<string> {
 // -- Send one notification to one phone ---------------------------------------
 interface Alert { title: string; subtitle?: string; body: string }
 
-async function sendToDevice(token: string, alert: Alert, badge: number, threadId: string) {
+// What the notification is about, so tapping it opens that exact nudge or message
+interface Target { nudgeId: string; kind: 'nudge' | 'message' | 'request' }
+
+async function sendToDevice(token: string, alert: Alert, badge: number, threadId: string, target: Target) {
   const payload = JSON.stringify({
     aps: { alert, sound: 'default', badge, 'thread-id': threadId },
+    nudgeId: target.nudgeId,
+    kind: target.kind,
   });
   const headers = {
     authorization: `bearer ${await apnsJwt()}`,
@@ -68,22 +73,29 @@ async function sendToDevice(token: string, alert: Alert, badge: number, threadId
 }
 
 // -- Who to notify, and what to say ------------------------------------------
-async function notify(names: string[], alert: Alert, nudgeId: string, actor: string) {
+async function notify(names: string[], alert: Alert, nudgeId: string, actor: string, kind: 'nudge' | 'message') {
   const threadId = `nudge-${nudgeId}`;
   for (const name of new Set(names)) {
-    // Skip anyone who silenced this nudge, or the person/group it came from
-    const { data: muted } = await db.rpc('is_muted', { p_owner: name, p_reminder: nudgeId, p_actor: actor });
-    if (muted) continue;
+    // The database decides: 'ok' = tell them, 'request' = someone new wants to send them
+    // nudges (they haven't accepted yet), 'skip' = blocked, silenced, declined, or not visible
+    const { data: verdict, error } = await db.rpc('push_allowed', { p_owner: name, p_reminder: nudgeId, p_actor: actor });
+    let decision = verdict as string | null;
+    if (error) {
+      // Older database without that step: fall back to the silence check only
+      const { data: muted } = await db.rpc('is_muted', { p_owner: name, p_reminder: nudgeId, p_actor: actor });
+      decision = muted ? 'skip' : 'ok';
+    }
+    if (decision === 'skip' || !decision) continue;
     const { data: devices } = await db.from('device_tokens').select('token').eq('owner_name', name);
     if (!devices?.length) continue;
-    // Badge = that person's unread count, like the red number on Messages
-    const { count } = await db
-      .from('reminders')
-      .select('id', { count: 'exact', head: true })
-      .contains('recipients', [name])
-      .eq('checked_out', false)
-      .eq('archived', false);
-    await Promise.all(devices.map(d => sendToDevice(d.token, alert, count ?? 1, threadId)));
+    // Badge = that person's unread nudges plus requests, like the red number on Messages
+    const { data: unread } = await db.rpc('unread_count', { p_name: name });
+    const badge = typeof unread === 'number' ? unread : Number(unread ?? 1) || 1;
+    const message: Alert = decision === 'request'
+      ? { title: 'Nudge request', body: `${clean(actor, 60)} wants to send you nudges` }
+      : alert;
+    const target: Target = { nudgeId, kind: decision === 'request' ? 'request' : kind };
+    await Promise.all(devices.map(d => sendToDevice(d.token, message, badge, threadId, target)));
   }
 }
 
@@ -132,7 +144,7 @@ Deno.serve(async (req) => {
       title: clean(nudge.sender, 60),
       ...(labels.length ? { subtitle: labels.join(' \u00b7 ') } : {}),
       body: clean(nudge.title) || clean(nudge.url) || 'New nudge',
-    }, nudge.id, nudge.sender);
+    }, nudge.id, nudge.sender, 'nudge');
   } else if (table === 'messages') {
     const { data: message } = await db.from('messages').select('*').eq('id', id).maybeSingle();
     if (!message || !isRecent(message.created_at)) return new Response('skipped');
@@ -143,7 +155,7 @@ Deno.serve(async (req) => {
       title: clean(message.sender, 60),
       subtitle: clean(nudge.title, 80),
       body: clean(message.text) || 'New message',
-    }, nudge.id, message.sender);
+    }, nudge.id, message.sender, 'message');
   }
   return new Response('ok');
 });

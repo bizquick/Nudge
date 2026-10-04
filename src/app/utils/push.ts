@@ -10,7 +10,10 @@ const isNative = () => Capacitor.isNativePlatform();
 const TOKEN_KEY = 'nudge.pushToken';
 let listenersReady = false;
 let currentOwner: string | null = null;
-let onOpenFromNotification: (() => void) | null = null;
+/** What a notification was about (sent along with it by the notification server) */
+export interface PushTarget { nudgeId?: string; kind?: 'nudge' | 'message' | 'request' }
+let onOpenFromNotification: ((target: PushTarget) => void) | null = null;
+let onNotificationArrived: (() => void) | null = null;
 
 async function saveToken(token: string) {
   if (!currentOwner) return;
@@ -22,17 +25,26 @@ async function saveToken(token: string) {
 }
 
 /** Ask for notification permission (first time only) and register this phone for the signed-in user. */
-export async function registerPush(owner: string, onOpen?: () => void) {
+export async function registerPush(owner: string, onOpen?: (target: PushTarget) => void, onArrive?: () => void) {
   if (!isNative()) return;
   currentOwner = owner;
   onOpenFromNotification = onOpen ?? null;
+  onNotificationArrived = onArrive ?? null;
 
   if (!listenersReady) {
     listenersReady = true;
     await PushNotifications.addListener('registration', ({ value }) => { saveToken(value); });
     await PushNotifications.addListener('registrationError', (err) => console.error('Push registration failed', err));
-    // Tapping a notification opens the app — jump to where new nudges are
-    await PushNotifications.addListener('pushNotificationActionPerformed', () => { onOpenFromNotification?.(); });
+    // Tapping a notification opens the app right at the nudge or message it's about
+    await PushNotifications.addListener('pushNotificationActionPerformed', ({ notification }) => {
+      const data = (notification?.data ?? {}) as Record<string, unknown>;
+      onOpenFromNotification?.({
+        nudgeId: typeof data.nudgeId === 'string' ? data.nudgeId : undefined,
+        kind: data.kind === 'message' || data.kind === 'request' ? data.kind : 'nudge',
+      });
+    });
+    // A notification arriving while the app is open: fetch what it's about right away
+    await PushNotifications.addListener('pushNotificationReceived', () => { onNotificationArrived?.(); });
   }
 
   let { receive } = await PushNotifications.checkPermissions();

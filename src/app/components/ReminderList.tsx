@@ -44,6 +44,15 @@ interface ReminderListProps {
   /** Favorites: no check mark (they're personal), just when it was sent and checked */
   hideCheck?: boolean;
   onToggleTodoComplete?: (reminderId: string) => void;
+  /** Shared to-do lists: add, reword, delete, or tick lines */
+  onTodoEdit?: (reminderId: string, op: 'toggle' | 'add' | 'edit' | 'delete', itemId?: string, text?: string) => void;
+  /** Popular/Explore: anyone can check (privately) and favorite */
+  anyoneCanCheck?: boolean;
+  /** Nudges you sent that someone hasn't accepted yet: nudge id -> who */
+  pendingSent?: Record<string, string[]>;
+  onWithdraw?: (reminderId: string) => void;
+  /** Open this nudge's messages right away (tapped a message notification) */
+  openMessagesId?: string | null;
 }
 
 export function ReminderList({
@@ -78,7 +87,12 @@ export function ReminderList({
   mutedIds,
   newMessageIds,
   hideCheck,
-  onToggleTodoComplete
+  onToggleTodoComplete,
+  onTodoEdit,
+  anyoneCanCheck,
+  pendingSent,
+  onWithdraw,
+  openMessagesId
 }: ReminderListProps) {
   // Drag to reorder. Pick a card up by pressing and holding anywhere on it
   // (or instantly from the grab strip at its top); it then follows your
@@ -419,6 +433,11 @@ export function ReminderList({
             folderOptions={folderOptions}
             onToggleTodo={onToggleTodo}
             onToggleTodoComplete={onToggleTodoComplete}
+            onTodoEdit={onTodoEdit}
+            anyoneCanCheck={anyoneCanCheck}
+            pendingRecipients={pendingSent?.[reminder.id]}
+            onWithdraw={onWithdraw}
+            openMessages={openMessagesId === reminder.id}
             onTogglePriority={onTogglePriority}
             rich={richCards}
             muted={muted}

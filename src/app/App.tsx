@@ -15,7 +15,7 @@ import { ImageWithFallback } from './components/figma/ImageWithFallback';
 import nudgeLogo from '../imports/image-3.png';
 import nIconTonal from '../imports/n-icon-tonal.png';
 import { supabase } from './utils/supabase/client';
-import { registerPush, unregisterPush, setBadge } from './utils/push';
+import { registerPush, unregisterPush, setBadge, type PushTarget } from './utils/push';
 import { App as CapacitorApp } from '@capacitor/app';
 import { Share } from '@capacitor/share';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
@@ -66,6 +66,34 @@ export interface Reminder {
   completedBy: string[];
   /** Photos and files attached to the nudge */
   attachments: Attachment[];
+  /** Who last renamed the group this nudge is in, and when (shown for a day) */
+  groupRenamedBy: string | null;
+  groupRenamedAt: Date | null;
+  /** Sent to you by someone you haven't accepted yet (only possible for Public nudges) */
+  awaitingMyAcceptance?: boolean;
+}
+
+/** Your own (or a fellow participant's) personal state for one nudge */
+export interface NudgeState {
+  owner_name: string;
+  reminder_id: string;
+  checked_at: string | null;
+  archived_at: string | null;
+  popular_checked_at: string | null;
+  explore_shown_at: string | null;
+  explore_done_at: string | null;
+}
+
+export interface Connection {
+  other_name: string;
+  status: 'accepted' | 'declined' | 'blocked';
+  declined_at: string | null;
+}
+
+export interface NudgeRequest {
+  sender: string;
+  waiting: number;
+  latest: string;
 }
 
 /** A photo or file attached to a nudge (several allowed, alongside a link) */
@@ -77,6 +105,8 @@ export interface Attachment {
 }
 
 const UPLOAD_PATH = '/nudge-uploads/';
+// "New messages" tracking started here; older unopened messages don't suddenly resurface
+const NEW_MESSAGES_SINCE = new Date('2026-10-04T07:00:00Z');
 
 // Older nudges kept a single upload in the link field. Treat that as an attachment
 // so it shows big like new ones, and keep only real web links as the link.
@@ -92,6 +122,8 @@ function splitLegacyUpload(row: any): { url?: string; attachments: Attachment[] 
 }
 
 export interface TodoItem {
+  /** Permanent id, so people editing the same list don't trip over each other */
+  id?: string;
   text: string;
   done: boolean;
   /** Who ticked it off, and when (only while it's ticked) */
@@ -100,7 +132,7 @@ export interface TodoItem {
 }
 
 /** What the New Nudge form hands back: a nudge to create, plus the "prioritize" choice */
-export type NewNudge = Omit<Reminder, 'id' | 'createdAt' | 'sender' | 'checkedOut' | 'prioritizedAt' | 'checkedAt' | 'completedBy'> & { prioritized: boolean };
+export type NewNudge = Omit<Reminder, 'id' | 'createdAt' | 'sender' | 'checkedOut' | 'prioritizedAt' | 'checkedAt' | 'completedBy' | 'groupRenamedBy' | 'groupRenamedAt'> & { prioritized: boolean };
 
 function rowToReminder(row: any, reactions: Reaction[] = [], voters: string[] = []): Reminder {
   const { url, attachments } = splitLegacyUpload(row);
@@ -129,7 +161,9 @@ function rowToReminder(row: any, reactions: Reaction[] = [], voters: string[] = 
     todoItems: Array.isArray(row.todo_items) ? row.todo_items : null,
     checkedAt: row.checked_at ? new Date(row.checked_at) : null,
     completedBy: Array.isArray(row.completed_by) ? row.completed_by : [],
-    attachments
+    attachments,
+    groupRenamedBy: row.group_renamed_by ?? null,
+    groupRenamedAt: row.group_renamed_at ? new Date(row.group_renamed_at) : null
   };
 }
 
@@ -289,13 +323,72 @@ export default function App() {
   // Your own favorites (null until loaded, or if the favorites table isn't set up yet —
   // then the old shared "favorited" switch is used as a fallback)
   const [favoriteIds, setFavoriteIds] = useState<Set<string> | null>(null);
-  // Each nudge as *you* see it: favorited means favorited by you, nobody else
+  // Personal state per nudge (yours, plus fellow participants' checks). null = not set up
+  // in the database yet, in which case the old shared switches are used.
+  const [nudgeStates, setNudgeStates] = useState<NudgeState[] | null>(null);
+  // Whom you've accepted, declined, or blocked
+  const [connections, setConnections] = useState<Connection[] | null>(null);
+  // People waiting for you to accept their nudges
+  const [requests, setRequests] = useState<NudgeRequest[]>([]);
+  // Nudges you sent that someone hasn't accepted yet: nudge id -> who
+  const [pendingSent, setPendingSent] = useState<Record<string, string[]>>({});
+
+  const myStates = useMemo(() => {
+    const map = new Map<string, NudgeState>();
+    (nudgeStates ?? []).forEach(st => { if (st.owner_name === currentUser) map.set(st.reminder_id, st); });
+    return map;
+  }, [nudgeStates, currentUser]);
+  // When each person in a nudge checked it (for "Checked" on nudges you sent)
+  const checksByNudge = useMemo(() => {
+    const map = new Map<string, Map<string, Date>>();
+    (nudgeStates ?? []).forEach(st => {
+      if (!st.checked_at) return;
+      if (!map.has(st.reminder_id)) map.set(st.reminder_id, new Map());
+      map.get(st.reminder_id)!.set(st.owner_name, new Date(st.checked_at));
+    });
+    return map;
+  }, [nudgeStates]);
+  const connectionOf = useMemo(() => new Map((connections ?? []).map(c => [c.other_name, c])), [connections]);
+  const blockedNames = useMemo(() => new Set((connections ?? []).filter(c => c.status === 'blocked').map(c => c.other_name)), [connections]);
+
+  // Each nudge as *you* see it: favorited, checked, and archived are yours alone
   const reminders = useMemo(
     () => {
       const visible = pendingDeletes.size ? rawReminders.filter(r => !pendingDeletes.has(r.id)) : rawReminders;
-      return favoriteIds ? visible.map(r => ({ ...r, favorited: favoriteIds.has(r.id) })) : visible;
+      return visible.map(r => {
+        const next = { ...r };
+        if (favoriteIds) next.favorited = favoriteIds.has(r.id);
+        if (nudgeStates && currentUser) {
+          const mine = myStates.get(r.id);
+          next.archived = !!mine?.archived_at;
+          const amRecipient = r.recipients.includes(currentUser);
+          if (r.todoItems) {
+            // to-do lists: checked once everyone taps Complete (shared on purpose)
+          } else if (amRecipient) {
+            next.checkedOut = !!mine?.checked_at;
+            next.checkedAt = mine?.checked_at ? new Date(mine.checked_at) : null;
+          } else if (r.sender === currentUser) {
+            // Nudges you sent: "Checked" once everyone you sent it to has checked it
+            const others = r.recipients.filter(p => p !== r.sender);
+            const checks = checksByNudge.get(r.id);
+            const times = others.map(p => checks?.get(p)).filter((d): d is Date => !!d);
+            next.checkedOut = others.length > 0 && times.length === others.length;
+            next.checkedAt = next.checkedOut ? new Date(Math.max(...times.map(d => d.getTime()))) : null;
+          } else {
+            next.checkedOut = false; // a stranger's Public nudge: Popular keeps its own checks
+            next.checkedAt = null;
+          }
+        }
+        // A Public nudge sent to you by someone you haven't accepted: Popular only, not your feed
+        if (connections && currentUser && r.recipients.includes(currentUser) && r.sender !== currentUser) {
+          const c = connectionOf.get(r.sender);
+          const accepted = c?.status === 'accepted' && (!c.declined_at || r.createdAt > new Date(c.declined_at));
+          if (!accepted) next.awaitingMyAcceptance = true;
+        }
+        return next;
+      });
     },
-    [rawReminders, favoriteIds, pendingDeletes]
+    [rawReminders, favoriteIds, pendingDeletes, nudgeStates, myStates, checksByNudge, connections, connectionOf, currentUser]
   );
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [avatars, setAvatars] = useState<Record<string, string>>({});
@@ -427,6 +520,20 @@ export default function App() {
     if (readErr) console.warn('Read times unavailable:', readErr);
     else setSeenAt(Object.fromEntries((readRows || []).map(r => [r.reminder_id, new Date(r.seen_at)])));
 
+    // Personal checks, connections, requests, and who hasn't accepted your nudges yet
+    const [{ data: stateRows, error: stateErr }, { data: connRows, error: connErr }, { data: reqRows }, { data: pendRows }] = await Promise.all([
+      supabase.from('nudge_user_state').select('owner_name, reminder_id, checked_at, archived_at, popular_checked_at, explore_shown_at, explore_done_at'),
+      supabase.from('connections').select('other_name, status, declined_at'),
+      supabase.rpc('my_nudge_requests'),
+      supabase.rpc('my_pending_recipients'),
+    ]);
+    if (stateErr) console.warn('Personal state unavailable:', stateErr); else setNudgeStates((stateRows || []) as NudgeState[]);
+    if (connErr) console.warn('Connections unavailable:', connErr); else setConnections((connRows || []) as Connection[]);
+    setRequests(((reqRows || []) as NudgeRequest[]).map(q => ({ ...q, waiting: Number(q.waiting) })));
+    const pend: Record<string, string[]> = {};
+    ((pendRows || []) as { reminder_id: string; recipient: string }[]).forEach(p => { (pend[p.reminder_id] ??= []).push(p.recipient); });
+    setPendingSent(pend);
+
     const { data: adminFlag } = await supabase.rpc('is_admin');
     setIsAdmin(adminFlag === true);
 
@@ -458,6 +565,8 @@ export default function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, scheduleRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'contact_prefs' }, scheduleRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'reminder_votes' }, scheduleRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'nudge_user_state' }, scheduleRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'connections' }, scheduleRefresh)
       .subscribe();
 
     return () => {
@@ -515,13 +624,23 @@ export default function App() {
       return;
     }
     setReminders(prev => [rowToReminder(data), ...prev]);
+    // One notice even when "Individually" sends several at once
+    const savedOnly = reminder.recipients.every(p => p === currentUser);
+    toast(savedOnly ? 'Saved to My Nudges' : 'Nudge sent!', { id: 'nudge-sent', duration: 2000 });
+    // Someone new? Their acceptance status comes from the server
+    if (!savedOnly) scheduleRefresh();
   };
 
   const handleUpdateGroupName = async (groupKey: string, name: string) => {
     const memberIds = reminders.filter(r => groupKeyFor(r) === groupKey).map(r => r.id);
     if (memberIds.length === 0) return;
-    setReminders(prev => prev.map(r => memberIds.includes(r.id) ? { ...r, groupName: name || null } : r));
-    const { error } = await supabase.from('reminders').update({ group_name: name || null }).in('id', memberIds);
+    const now = new Date();
+    setReminders(prev => prev.map(r => memberIds.includes(r.id) ? { ...r, groupName: name || null, groupRenamedBy: currentUser, groupRenamedAt: now } : r));
+    // Remember who renamed it and when, for the "renamed the group" notice in the chat
+    let { error } = await supabase.from('reminders')
+      .update({ group_name: name || null, group_renamed_by: currentUser, group_renamed_at: now.toISOString() })
+      .in('id', memberIds);
+    if (error) ({ error } = await supabase.from('reminders').update({ group_name: name || null }).in('id', memberIds));
     if (error) {
       console.error(error);
       toast('Could not update the group name');
@@ -559,14 +678,54 @@ export default function App() {
     }
   };
 
+  // Save part of your personal state for a nudge (checked, archived, Popular progress)
+  const setMyState = async (id: string, patch: Partial<Omit<NudgeState, 'owner_name' | 'reminder_id'>>) => {
+    if (!currentUser) return;
+    setNudgeStates(prev => {
+      const list = prev ?? [];
+      const existing = list.find(st => st.owner_name === currentUser && st.reminder_id === id);
+      const blank: NudgeState = { owner_name: currentUser, reminder_id: id, checked_at: null, archived_at: null, popular_checked_at: null, explore_shown_at: null, explore_done_at: null };
+      const updated = { ...(existing ?? blank), ...patch };
+      return existing ? list.map(st => st === existing ? updated : st) : [...list, updated];
+    });
+    const { error } = await supabase.from('nudge_user_state')
+      .upsert({ owner_name: currentUser, reminder_id: id, ...patch }, { onConflict: 'owner_name,reminder_id' });
+    if (error) {
+      console.error(error);
+      toast('Could not save that');
+    }
+  };
+
+  // The same personal-state change for several nudges at once (one trip to the server)
+  const setMyStates = async (ids: string[], patch: Partial<Omit<NudgeState, 'owner_name' | 'reminder_id'>>) => {
+    if (!currentUser || !ids.length) return;
+    setNudgeStates(prev => {
+      const list = [...(prev ?? [])];
+      ids.forEach(id => {
+        const i = list.findIndex(st => st.owner_name === currentUser && st.reminder_id === id);
+        const blank: NudgeState = { owner_name: currentUser, reminder_id: id, checked_at: null, archived_at: null, popular_checked_at: null, explore_shown_at: null, explore_done_at: null };
+        if (i >= 0) list[i] = { ...list[i], ...patch }; else list.push({ ...blank, ...patch });
+      });
+      return list;
+    });
+    const { error } = await supabase.from('nudge_user_state')
+      .upsert(ids.map(id => ({ owner_name: currentUser, reminder_id: id, ...patch })), { onConflict: 'owner_name,reminder_id' });
+    if (error) console.error(error);
+  };
+
   const handleToggleCheckedOut = async (id: string) => {
     const reminder = reminders.find(r => r.id === id);
     if (!reminder) return;
     const wasCheckedOut = reminder.checkedOut;
 
-    // Checking off also records when, so everyone in the nudge can see it
+    // Your check is yours alone (the sender sees "Checked" once you've checked it)
     const applyValue = async (value: boolean) => {
       const checkedAt = value ? new Date() : null;
+      if (nudgeStates) {
+        setMyState(id, { checked_at: checkedAt ? checkedAt.toISOString() : null });
+        if (value) markSeen(id);
+        return;
+      }
       setReminders(prev => prev.map(r => r.id === id ? { ...r, checkedOut: value, checkedAt } : r));
       const { error } = await supabase.from('reminders')
         .update({ checked_out: value, checked_at: checkedAt ? checkedAt.toISOString() : null })
@@ -587,7 +746,9 @@ export default function App() {
     const reminder = reminders.find(r => r.id === id);
     if (!reminder) return;
     const nextValue = !reminder.archived;
+    // Archiving only tidies your own lists
     const apply = async (value: boolean) => {
+      if (nudgeStates) { setMyState(id, { archived_at: value ? new Date().toISOString() : null }); return; }
       setReminders(prev => prev.map(r => r.id === id ? { ...r, archived: value } : r));
       const { error } = await supabase.from('reminders').update({ archived: value }).eq('id', id);
       if (error) console.error(error);
@@ -684,28 +845,84 @@ export default function App() {
   // Tick or untick one line of a to-do list nudge (everyone in the nudge sees it,
   // along with who ticked it). The server flips just that one line, so two people
   // ticking different lines at the same moment don't undo each other.
-  const handleToggleTodo = async (id: string, index: number) => {
+  // Shared to-do lists: anyone in the list can tick, add, reword, or delete lines.
+  // Each change is applied on the server one at a time, so two people editing
+  // together never undo each other (like a shared list in Reminders).
+  const handleTodoEdit = async (id: string, op: 'toggle' | 'add' | 'edit' | 'delete', itemId?: string, text?: string) => {
     if (!currentUser) return;
     const reminder = reminders.find(r => r.id === id);
     if (!reminder?.todoItems) return;
-    const next = reminder.todoItems.map((item, i) => {
-      if (i !== index) return item;
-      if (item.done) return { text: item.text, done: false };
-      return { ...item, done: true, by: currentUser, at: new Date().toISOString() };
-    });
-    setReminders(prev => prev.map(r => r.id === id ? { ...r, todoItems: next } : r));
-    const { data, error } = await supabase.rpc('toggle_todo_item', { p_id: id, p_index: index });
-    if (!error && data) {
-      setReminders(prev => prev.map(r => r.id === id ? rowToReminder(data, r.reactions, r.voters) : r));
+    const items = reminder.todoItems;
+    let next = items;
+    if (op === 'add' && text?.trim()) next = [...items, { id: 'tmp-' + Date.now(), text: text.trim(), done: false }];
+    if (op === 'delete' || (op === 'edit' && !text?.trim())) next = items.filter(i => i.id !== itemId);
+    if (op === 'edit' && text?.trim()) next = items.map(i => i.id === itemId ? { ...i, text: text.trim() } : i);
+    if (op === 'toggle') next = items.map(i => i.id !== itemId ? i
+      : i.done ? { id: i.id, text: i.text, done: false } : { ...i, done: true, by: currentUser, at: new Date().toISOString() });
+    setReminders(prev => prev.map(r => r.id === id
+      ? { ...r, todoItems: next, ...(op === 'add' ? { completedBy: [], checkedOut: false, checkedAt: null } : {}) }
+      : r));
+    const { data, error } = await supabase.rpc('todo_edit', { p_id: id, p_op: op, p_item: itemId ?? null, p_text: text ?? null });
+    if (error || !data) {
+      console.error(error);
+      toast('Could not update that list');
+      setReminders(prev => prev.map(r => r.id === id ? { ...r, todoItems: items } : r));
       return;
     }
-    // Older database without that step: save the whole list instead
-    console.warn('toggle_todo_item unavailable, saving whole list', error);
-    const { error: saveError } = await supabase.from('reminders').update({ todo_items: next }).eq('id', id);
-    if (saveError) {
-      console.error(saveError);
-      toast('Could not update that to-do');
+    setReminders(prev => prev.map(r => r.id === id ? rowToReminder(data, r.reactions, r.voters) : r));
+  };
+  const handleToggleTodo = async (id: string, index: number) => {
+    const item = reminders.find(r => r.id === id)?.todoItems?.[index];
+    if (!item) return;
+    if (item.id) { handleTodoEdit(id, 'toggle', item.id); return; }
+    // Lines from before ids existed (the database step adds them): the older one-line tick
+    const { data, error } = await supabase.rpc('toggle_todo_item', { p_id: id, p_index: index });
+    if (error || !data) { console.error(error); toast('Could not update that to-do'); return; }
+    setReminders(prev => prev.map(r => r.id === id ? rowToReminder(data, r.reactions, r.voters) : r));
+  };
+
+  // ---- Nudge requests and blocking ----
+  const setConnection = async (name: string, status: Connection['status'], extra: Partial<Connection> = {}) => {
+    if (!currentUser) return;
+    const existing = connectionOf.get(name);
+    const row = { other_name: name, status, declined_at: existing?.declined_at ?? null, ...extra };
+    setConnections(prev => [...(prev ?? []).filter(c => c.other_name !== name), row]);
+    const { error } = await supabase.from('connections').upsert(
+      { owner_name: currentUser, ...row, updated_at: new Date().toISOString() },
+      { onConflict: 'owner_name,other_name' }
+    );
+    if (error) {
+      console.error(error);
+      toast('Could not save that');
     }
+    loadData(); // accepting reveals their nudges; declining or blocking hides them
+  };
+  const handleAcceptRequest = (name: string) => {
+    setRequests(prev => prev.filter(q => q.sender !== name));
+    setConnection(name, 'accepted');
+    toast(`You'll now get nudges from ${name}`);
+  };
+  // Declining quietly drops what they sent (they're never told); new nudges ask again
+  const handleDeclineRequest = (name: string) => {
+    setRequests(prev => prev.filter(q => q.sender !== name));
+    setConnection(name, 'declined', { declined_at: new Date().toISOString() });
+  };
+  const handleBlock = (name: string) => {
+    setRequests(prev => prev.filter(q => q.sender !== name));
+    if (selectedSender === name) selectSender(null);
+    setConnection(name, 'blocked');
+    toast(`Blocked ${name}. You won't see anything from them.`);
+  };
+  // Unblocking starts fresh: nothing old comes back, and their next nudge is a request
+  const handleUnblock = (name: string) => {
+    setConnection(name, 'declined', { declined_at: new Date().toISOString() });
+    toast(`Unblocked ${name}`);
+  };
+
+  // ---- Popular and Explore: your own checks, separate from your feed ----
+  const handleTogglePopularCheck = (id: string) => {
+    const st = myStates.get(id);
+    setMyState(id, { popular_checked_at: st?.popular_checked_at ? null : new Date().toISOString() });
   };
 
   // Silence or un-silence notifications for a person, a group, or a single nudge
@@ -1001,47 +1218,51 @@ export default function App() {
     setDeferredPrompt(null);
   };
 
-  const receivedReminders = reminders.filter(r => r.recipients.includes(currentUser));
-  const sentReminders = reminders.filter(r => r.sender === currentUser);
+  // Your feed: leaves out nudges from people you haven't accepted (Public ones still show
+  // in Popular) and anything from people you've blocked
+  const feedReminders = reminders.filter(r => !r.awaitingMyAcceptance && !(r.sender !== currentUser && blockedNames.has(r.sender)));
+  const shownMessages = blockedNames.size ? messages.filter(m => !blockedNames.has(m.sender)) : messages;
+  const receivedReminders = feedReminders.filter(r => r.recipients.includes(currentUser));
+  const sentReminders = feedReminders.filter(r => r.sender === currentUser);
 
-  const myOwnReminders = reminders.filter(r => isSavedToSelf(r, currentUser) && !r.archived);
+  const myOwnReminders = feedReminders.filter(r => isSavedToSelf(r, currentUser) && !r.archived);
 
-  const allUserReminders = reminders.filter(r =>
+  const allUserReminders = feedReminders.filter(r =>
     r.sender === currentUser || r.recipients.includes(currentUser)
   );
 
   // "To" suggestions: only people you've already sent nudges to or received them from.
   // Anyone else is found by typing their exact Nudge name (the server checks it).
   const contacts = Array.from(new Set(allUserReminders.flatMap(r => [r.sender, ...r.recipients])))
-    .filter(name => name && name !== currentUser)
+    .filter(name => name && name !== currentUser && !blockedNames.has(name))
     .sort((a, b) => a.localeCompare(b));
 
   // Home's Unread list: only nudges sent to you, plus ones you saved to My Nudges
   // (those list you as a recipient too) — not ones you only sent to others.
-  const inboxReminders = reminders.filter(r => r.recipients.includes(currentUser));
+  const inboxReminders = feedReminders.filter(r => r.recipients.includes(currentUser));
   const unreadCount = inboxReminders.filter(r => !r.checkedOut && !r.archived).length;
   // To-do lists are shared work, so ones you sent stay on your Home too until everyone completes them
-  const homeReminders = reminders.filter(r => r.recipients.includes(currentUser) || (r.sender === currentUser && r.todoItems));
+  const homeReminders = feedReminders.filter(r => r.recipients.includes(currentUser) || (r.sender === currentUser && r.todoItems));
 
   // A checked nudge that got a message from someone else since you checked it
   // (or last opened it): it stays checked, but comes back to the top of Home.
   const latestOtherMessage = new Map<string, Date>();
-  messages.forEach(m => {
+  shownMessages.forEach(m => {
     if (m.sender === currentUser) return;
     const prev = latestOtherMessage.get(m.reminderId);
     if (!prev || m.createdAt > prev) latestOtherMessage.set(m.reminderId, m.createdAt);
   });
+  // A message counts as new until YOU open the nudge — someone else checking it doesn't
+  // hide it from you. (Nudges you never opened before this feature only count newer messages.)
   const hasNewMessages = (id: string) => {
     const r = reminders.find(x => x.id === id);
     const latest = latestOtherMessage.get(id);
     if (!r || !latest || !isDone(r)) return false;
-    const seen = seenAt[id];
-    const baseline = seen && r.checkedAt ? (seen > r.checkedAt ? seen : r.checkedAt) : (seen ?? r.checkedAt);
-    return !!baseline && latest > baseline;
+    return latest > (seenAt[id] ?? NEW_MESSAGES_SINCE);
   };
   const reopenedReminders = allUserReminders.filter(r => hasNewMessages(r.id));
   // The red number on Home and the app icon: new nudges plus checked ones with new messages
-  const homeBadge = unreadCount + reopenedReminders.length;
+  const homeBadge = unreadCount + reopenedReminders.length + requests.filter(q => !blockedNames.has(q.sender)).length;
   // Pull to refresh: drag the list down from the very top and let go to reload
   // everything. Built by hand (iPhone apps don't get the browser's version), and it
   // moves the page directly rather than re-rendering, so it stays smooth.
@@ -1130,7 +1351,7 @@ export default function App() {
         .filter(r => !isGroupReminder(r))
         .map(r => r.sender === currentUser ? realRecipients(r)[0] : r.sender)
     )
-  ).filter((name): name is string => !!name && !hiddenContactNames.has(name)).sort();
+  ).filter((name): name is string => !!name && !hiddenContactNames.has(name) && !blockedNames.has(name)).sort();
 
   // Group threads: identified by their exact participant set, so every nudge
   // sent among the same people threads together regardless of who sent it.
@@ -1160,7 +1381,7 @@ export default function App() {
     return g ? groupLabel(g) : 'Group';
   };
 
-  const allRemindersForUser = reminders.filter(r =>
+  const allRemindersForUser = feedReminders.filter(r =>
     r.sender === currentUser || r.recipients.includes(currentUser)
   );
 
@@ -1264,14 +1485,56 @@ export default function App() {
     className: 'bg-red-500 text-white',
   }];
 
-  const publicReminders = reminders.filter(r => r.isPublic);
+  const publicReminders = reminders.filter(r => r.isPublic && !blockedNames.has(r.sender));
+  // In Popular and Explore, "checked" is your own Popular check — it never touches the
+  // nudge anywhere else (your feed, the sender's view, or anyone else's Popular)
+  const asPopular = (r: Reminder): Reminder => {
+    const st = myStates.get(r.id);
+    return { ...r, checkedOut: !!st?.popular_checked_at, checkedAt: st?.popular_checked_at ? new Date(st.popular_checked_at) : null, archived: false };
+  };
 
-  // Most Popular: most likes first; ties go to the newer nudge
+  // Most Popular: the top 100 by likes; ties go to the newer nudge
   const topReminders = [...publicReminders].sort((a, b) => {
     if (a.isSponsored !== b.isSponsored) return a.isSponsored ? -1 : 1;
     if (b.voters.length !== a.voters.length) return b.voters.length - a.voters.length;
     return b.createdAt.getTime() - a.createdAt.getTime();
-  });
+  }).slice(0, 100).map(asPopular);
+
+  // Explore: 10 random Public nudges at a time, just for you. Once you've checked all 10,
+  // "Show 10 more" drops the ones you didn't favorite and deals a fresh 10.
+  const explorePool = publicReminders.filter(r => r.sender !== currentUser);
+  const exploreBatch = explorePool
+    .filter(r => { const st = myStates.get(r.id); return !!st?.explore_shown_at && !st.explore_done_at; })
+    .sort((a, b) => (myStates.get(a.id)!.explore_shown_at! < myStates.get(b.id)!.explore_shown_at! ? -1 : 1))
+    .map(asPopular);
+  const exploreFresh = explorePool.filter(r => !myStates.get(r.id)?.explore_shown_at);
+  const exploreAllChecked = exploreBatch.length > 0 && exploreBatch.every(r => r.checkedOut);
+  const dealExplore = async (exclude: Set<string> = new Set()) => {
+    if (!currentUser) return;
+    const fresh = exploreFresh.filter(r => !exclude.has(r.id));
+    for (let i = fresh.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [fresh[i], fresh[j]] = [fresh[j], fresh[i]];
+    }
+    const pick = fresh.slice(0, 10);
+    if (!pick.length) return;
+    await setMyStates(pick.map(r => r.id), { explore_shown_at: new Date().toISOString() });
+  };
+  const handleExploreMore = async () => {
+    const leaving = exploreBatch.filter(r => !r.favorited).map(r => r.id);
+    if (leaving.length) await setMyStates(leaving, { explore_done_at: new Date().toISOString() });
+    dealExplore(new Set(leaving));
+  };
+  // First visit (or an empty batch): deal the first 10
+  const dealing = useRef(false);
+  useEffect(() => {
+    if (mobileTab !== 'popular' || popularSubTab !== 'explore' || !nudgeStates || dealing.current) return;
+    if (exploreBatch.length === 0 && exploreFresh.length > 0) {
+      dealing.current = true;
+      dealExplore().finally(() => { dealing.current = false; });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mobileTab, popularSubTab, nudgeStates, exploreBatch.length, exploreFresh.length]);
 
   // Explore: public nudges in random order, minus ones you sent or already liked.
   // Worked out when you shuffle (or new nudges arrive) — liking one doesn't make it
@@ -1280,12 +1543,50 @@ export default function App() {
   // Tapping a notification brings you to Home → Unread.
   useEffect(() => {
     if (!currentUser) return;
-    registerPush(currentUser, () => {
+    registerPush(currentUser, (target) => setPendingOpen(target), () => scheduleRefresh());
+  }, [currentUser, scheduleRefresh]);
+
+  // iPhone pauses the app's live connection while it's in the background, so anything
+  // that arrived meanwhile would be missed. Reload whenever the app comes back.
+  useEffect(() => {
+    if (!currentUser) return;
+    const listener = CapacitorApp.addListener('appStateChange', ({ isActive }) => { if (isActive) scheduleRefresh(); });
+    return () => { listener.then(l => l.remove()).catch(() => {}); };
+  }, [currentUser, scheduleRefresh]);
+
+  // Tapped a notification: reload, then open the nudge (and its messages) it was about
+  const [pendingOpen, setPendingOpen] = useState<PushTarget | null>(null);
+  const [openMessagesId, setOpenMessagesId] = useState<string | null>(null);
+  const awaitingOpenLoad = useRef(false);
+  useEffect(() => {
+    if (!pendingOpen || !currentUser || dataLoading || awaitingOpenLoad.current) return;
+    awaitingOpenLoad.current = true;
+    loadData().finally(() => { awaitingOpenLoad.current = false; setOpenTarget(pendingOpen); setPendingOpen(null); });
+  }, [pendingOpen, currentUser, dataLoading, loadData]);
+  const [openTarget, setOpenTarget] = useState<PushTarget | null>(null);
+  useEffect(() => {
+    if (!openTarget || !currentUser) return;
+    const target = openTarget;
+    setOpenTarget(null);
+    setProfileName(null);
+    const r = feedReminders.find(x => x.id === target.nudgeId);
+    if (!r || target.kind === 'request') {
+      // A request (or something not visible yet): Home, where requests sit at the top
       setSelectedSender(null);
       setMobileTab('inbox');
       setAllMessagesFilter('unread');
-    });
-  }, [currentUser]);
+      return;
+    }
+    const key = groupKeyFor(r);
+    const chat = key ? 'group:' + key
+      : realRecipients(r).length === 0 ? 'My Reminders'
+      : r.sender === currentUser ? realRecipients(r)[0] : r.sender;
+    selectSender(chat);
+    setShowChecked(isDone(r));
+    setExpandedId(r.id);
+    setOpenMessagesId(target.kind === 'message' ? r.id : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openTarget]);
 
   // Invite links open the app (iPhone "Universal Links"): read the name out of the link
   useEffect(() => {
@@ -1373,7 +1674,7 @@ export default function App() {
               reminders={list}
               viewType="received"
               currentUser={currentUser}
-              messages={messages}
+              messages={shownMessages}
               selectedId={expandedId}
               onSelectId={setExpandedId}
               onToggleCheckedOut={handleToggleCheckedOut}
@@ -1385,6 +1686,9 @@ export default function App() {
               onToggleReaction={handleToggleReaction}
               onToggleTodo={handleToggleTodo}
               onToggleTodoComplete={handleToggleTodoComplete}
+              onTodoEdit={handleTodoEdit}
+              pendingSent={pendingSent}
+              onWithdraw={handleDeleteNudge}
               onTogglePriority={handleTogglePriority}
               // Favorites are personal: no check mark there, just when it was sent and checked
               hideCheck={allMessagesFilter === 'favorited'}
@@ -1723,7 +2027,7 @@ export default function App() {
               reminders={displayedReminders}
               viewType="received"
               currentUser={currentUser}
-              messages={messages}
+              messages={shownMessages}
               selectedId={expandedId}
               onSelectId={setExpandedId}
               onToggleCheckedOut={handleToggleCheckedOut}
@@ -1735,8 +2039,27 @@ export default function App() {
               onToggleReaction={handleToggleReaction}
               onToggleTodo={handleToggleTodo}
               onToggleTodoComplete={handleToggleTodoComplete}
+              onTodoEdit={handleTodoEdit}
+              pendingSent={pendingSent}
+              onWithdraw={handleDeleteNudge}
+              openMessagesId={openMessagesId}
               onTogglePriority={handleTogglePriority}
             />
+            {/* "Alison renamed the group" — shown for a day after a rename */}
+            {selectedGroupKey && (() => {
+              const latest = chatReminders
+                .filter(r => r.groupRenamedAt && r.groupRenamedBy)
+                .sort((a, b) => b.groupRenamedAt!.getTime() - a.groupRenamedAt!.getTime())[0];
+              if (!latest || Date.now() - latest.groupRenamedAt!.getTime() > 24 * 3600e3) return null;
+              const who = latest.groupRenamedBy === currentUser ? 'You' : latest.groupRenamedBy;
+              const time = latest.groupRenamedAt!.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+              const when = isToday(latest.groupRenamedAt!) ? time : `Yesterday ${time}`;
+              return (
+                <p className="mt-3 text-center text-[12px] text-stone-500">
+                  {who} {latest.groupName ? <>named the group <span className="text-stone-700">“{latest.groupName}”</span></> : 'removed the group name'} · {when}
+                </p>
+              );
+            })()}
             </>
           ) : mobileTab === 'inbox' ? (
             <>
@@ -1759,6 +2082,41 @@ export default function App() {
                 />
               );
             })()}
+            {/* Nudge requests: always first on Home until you accept or decline */}
+            {requests.filter(q => !blockedNames.has(q.sender)).length > 0 && (
+              <div className="mb-3 space-y-2">
+                <p className="text-xs text-request-700">Nudge requests</p>
+                {requests.filter(q => !blockedNames.has(q.sender)).map(q => (
+                  <div key={q.sender} className="rounded-2xl border-2 border-request-300 bg-request-50 p-3.5">
+                    <div className="flex items-center gap-3">
+                      <Avatar name={q.sender} size={44} profile />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[15px] font-medium text-stone-900 truncate">
+                          <ProfileLink name={q.sender}>{q.sender}</ProfileLink> wants to send you nudges
+                        </p>
+                        <p className="text-xs text-request-700">
+                          {q.waiting} nudge{q.waiting === 1 ? '' : 's'} waiting · accept to see {q.waiting === 1 ? 'it' : 'them'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex gap-2">
+                      <button onClick={() => handleAcceptRequest(q.sender)} className="flex-1 h-10 rounded-xl bg-brand-600 text-white text-sm active:bg-brand-700">
+                        Accept
+                      </button>
+                      <button onClick={() => handleDeclineRequest(q.sender)} className="flex-1 h-10 rounded-xl border border-request-300 bg-white text-stone-700 text-sm active:bg-request-100">
+                        Decline
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => { if (confirm(`Block ${q.sender}? You won't get nudges, messages, or notifications from them. They won't be told.`)) handleBlock(q.sender); }}
+                      className="mt-2 w-full text-center text-xs text-stone-500"
+                    >
+                      Block {q.sender}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="flex justify-end -mr-1 mb-1">
               <SortMenu value={sortSettings[allMessagesFilter]} onChange={(s) => changeSort(allMessagesFilter, s)} />
             </div>
@@ -1775,10 +2133,10 @@ export default function App() {
                       : 'bg-white border border-stone-300 text-stone-700 hover:bg-stone-50'
                   }`}
                 >
-                  Most Popular Nudges
+                  Top 100
                 </button>
                 <button
-                  onClick={() => { setPopularSubTab('explore'); setExploreSeed(s => s + 1); }}
+                  onClick={() => setPopularSubTab('explore')}
                   className={`flex-1 px-3 py-2.5 rounded-lg text-sm transition-colors ${
                     popularSubTab === 'explore'
                       ? 'bg-brand-600 text-white'
@@ -1789,39 +2147,61 @@ export default function App() {
                 </button>
               </div>
 
-              {popularSubTab === 'explore' && (
-                <button
-                  onClick={() => setExploreSeed(s => s + 1)}
-                  className="mb-3 flex items-center gap-1.5 text-sm text-brand-600 hover:text-brand-700"
-                >
-                  <TrendingUp className="w-3.5 h-3.5" />
-                  Shuffle
-                </button>
+              {popularSubTab === 'explore' && nudgeStates && exploreBatch.length > 0 && (
+                <p className="mb-2 text-xs text-stone-500">
+                  {exploreAllChecked
+                    ? 'All checked! Favorite any you want to keep, then get 10 more.'
+                    : `${exploreBatch.filter(r => r.checkedOut).length} of ${exploreBatch.length} checked. Check them all to get 10 more.`}
+                </p>
               )}
 
+              {popularSubTab === 'explore' && nudgeStates && exploreBatch.length === 0 && exploreFresh.length === 0 ? (
+                <div className="text-center pt-14 px-6">
+                  <div className="text-5xl mb-3" aria-hidden="true">🌟</div>
+                  <p className="text-lg text-stone-800">You've seen it all!</p>
+                  <p className="text-sm text-stone-500 mt-1">Come back later to see more cool stuff.</p>
+                </div>
+              ) : (
               <ReminderList
-                reminders={popularSubTab === 'top' ? topReminders : exploreReminders}
+                reminders={popularSubTab === 'top' ? topReminders : nudgeStates ? exploreBatch : exploreReminders.map(asPopular)}
+                anyoneCanCheck
                 viewType="received"
                 currentUser={currentUser}
-                messages={messages}
+                messages={shownMessages}
                 selectedId={expandedId}
                 onSelectId={setExpandedId}
-                onToggleCheckedOut={handleToggleCheckedOut}
+                onToggleCheckedOut={handleTogglePopularCheck}
                 onArchive={handleArchive}
                 onAddMessage={handleAddMessage}
                 onToggleFavorite={handleToggleFavorite}
                 onUpdateTitle={handleUpdateTitle}
                 onForward={setForwardingReminder}
                 onToggleReaction={handleToggleReaction}
-              onToggleTodo={handleToggleTodo}
-              onTogglePriority={handleTogglePriority}
+                onToggleTodo={handleToggleTodo}
+                onTodoEdit={handleTodoEdit}
                 onUpvote={handleToggleVote}
                 emptyMessage={
                   popularSubTab === 'top'
                     ? "No public nudges yet. Mark a nudge \"public\" when sending one to see it show up here."
-                    : "You're all caught up. Nudges you've liked move to Most Popular. Check back later for new ones, or mark one of your own \"Public\" to share it here."
+                    : 'Dealing your first 10…'
                 }
               />
+              )}
+
+              {popularSubTab === 'explore' && nudgeStates && exploreAllChecked && (
+                exploreFresh.length > 0 ? (
+                  <button
+                    onClick={handleExploreMore}
+                    className="mt-4 w-full h-12 rounded-xl bg-brand-600 text-white active:bg-brand-700"
+                  >
+                    Show me 10 more
+                  </button>
+                ) : (
+                  <p className="mt-6 text-center text-sm text-stone-500">
+                    You've seen it all! Come back later to see more cool stuff.
+                  </p>
+                )
+              )}
             </div>
           ) : mobileTab === 'people' ? (
             <div className="divide-y divide-stone-100">
@@ -2006,6 +2386,21 @@ export default function App() {
                   Share my Addly link
                 </button>
               </div>
+              {blockedNames.size > 0 && (
+                <div className="bg-white rounded-xl border border-stone-200 p-5">
+                  <p className="text-base">Blocked</p>
+                  <p className="text-sm text-stone-500 mt-1">You don't get nudges, messages, or notifications from these people.</p>
+                  <div className="mt-2 divide-y divide-stone-100">
+                    {Array.from(blockedNames).sort().map(name => (
+                      <div key={name} className="py-2.5 flex items-center gap-3">
+                        <Avatar name={name} size={32} />
+                        <span className="flex-1 min-w-0 truncate">{name}</span>
+                        <button onClick={() => handleUnblock(name)} className="text-sm text-brand-600">Unblock</button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               {isAdmin && (
                 <button
                   onClick={() => setShowInsights(true)}
@@ -2139,6 +2534,9 @@ export default function App() {
           isYou={profileName === currentUser}
           onSendNudge={() => { setQuickSendTo(profileName); setProfileName(null); }}
           onClose={() => setProfileName(null)}
+          blocked={blockedNames.has(profileName)}
+          onBlock={() => handleBlock(profileName)}
+          onUnblock={() => handleUnblock(profileName)}
         />
       )}
       {showAvatarPicker && (

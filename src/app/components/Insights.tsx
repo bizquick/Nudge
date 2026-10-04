@@ -27,6 +27,18 @@ interface Stats {
 }
 
 type Series = 'active' | 'nudges' | 'messages' | 'signups';
+
+interface UserRow {
+  display_name: string;
+  email: string | null;
+  joined: string;
+  last_active: string | null;
+  sent: number;
+  received: number;
+}
+
+const shortDate = (iso: string | null) =>
+  iso ? new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' }) : '—';
 const SERIES_LABELS: Record<Series, string> = { active: 'Active people', nudges: 'Nudges', messages: 'Messages', signups: 'Sign-ups' };
 
 const pct = (part: number, whole: number) => (whole > 0 ? `${Math.round((part / whole) * 100)}%` : '—');
@@ -63,6 +75,10 @@ export function Insights({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [series, setSeries] = useState<Series>('active');
+  // Everyone's account (owner only — the database refuses anyone else)
+  const [users, setUsers] = useState<UserRow[] | null>(null);
+  const [userQuery, setUserQuery] = useState('');
+  const [showAllUsers, setShowAllUsers] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -74,6 +90,9 @@ export function Insights({ onClose }: { onClose: () => void }) {
     } else {
       setStats(data as Stats);
     }
+    const { data: userRows, error: userErr } = await supabase.rpc('admin_users');
+    if (userErr) console.warn('User list unavailable', userErr);
+    else setUsers(((userRows || []) as UserRow[]).map(u => ({ ...u, sent: Number(u.sent), received: Number(u.received) })));
     setLoading(false);
   };
   useEffect(() => { load(); }, []);
@@ -101,7 +120,7 @@ export function Insights({ onClose }: { onClose: () => void }) {
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
         <div className="max-w-2xl mx-auto w-full px-4 pb-8">
           <p className="text-xs text-stone-500">
-            App-wide numbers, only visible to you. Totals only, never anyone's nudges or messages.
+            App-wide numbers and your user list, only visible to you. Never anyone's nudges or messages.
             {stats && ` Updated ${new Date(stats.generated_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}.`}
           </p>
 
@@ -183,6 +202,46 @@ export function Insights({ onClose }: { onClose: () => void }) {
                   </div>
                 )}
               </Section>
+
+              {users && (
+                <Section title={`Users (${users.length})`}>
+                  <input
+                    value={userQuery}
+                    onChange={(e) => setUserQuery(e.target.value)}
+                    placeholder="Search by name or email"
+                    className="w-full mb-2 px-3 py-2 rounded-xl border border-stone-300 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  />
+                  <div className="bg-white rounded-xl border border-stone-200 divide-y divide-stone-100">
+                    {(() => {
+                      const q = userQuery.trim().toLowerCase();
+                      const matches = users.filter(u => !q || u.display_name.toLowerCase().includes(q) || (u.email ?? '').toLowerCase().includes(q));
+                      const shown = showAllUsers || q ? matches : matches.slice(0, 25);
+                      return (
+                        <>
+                          {shown.map(u => (
+                            <div key={u.display_name} className="px-3.5 py-2.5">
+                              <div className="flex items-baseline gap-2">
+                                <span className="flex-1 min-w-0 truncate text-stone-900">{u.display_name}</span>
+                                <span className="text-[11px] text-stone-400 shrink-0">joined {shortDate(u.joined)}</span>
+                              </div>
+                              <p className="text-[12px] text-stone-500 truncate">{u.email ?? 'no email'}</p>
+                              <p className="text-[11px] text-stone-400">
+                                {u.sent} sent · {u.received} received · last active {shortDate(u.last_active)}
+                              </p>
+                            </div>
+                          ))}
+                          {matches.length === 0 && <p className="px-3.5 py-3 text-sm text-stone-500">No one matches.</p>}
+                          {!showAllUsers && !q && matches.length > 25 && (
+                            <button onClick={() => setShowAllUsers(true)} className="w-full px-3.5 py-2.5 text-sm text-brand-600">
+                              Show all {matches.length}
+                            </button>
+                          )}
+                        </>
+                      );
+                    })()}
+                  </div>
+                </Section>
+              )}
 
               <Section title="Engagement">
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
