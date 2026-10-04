@@ -1247,7 +1247,9 @@ export default function App() {
   // Home's Unread list: only nudges sent to you, plus ones you saved to My Nudges
   // (those list you as a recipient too) — not ones you only sent to others.
   const inboxReminders = feedReminders.filter(r => r.recipients.includes(currentUser));
-  const unreadCount = inboxReminders.filter(r => !r.checkedOut && !r.archived).length;
+  // A to-do list you've already opened isn't "new" any more (it stays on Home until it's done)
+  const isNewToMe = (r: Reminder) => !r.checkedOut && !r.archived && !(r.todoItems && seenAt[r.id]);
+  const unreadCount = inboxReminders.filter(isNewToMe).length;
   // To-do lists are shared work, so ones you sent stay on your Home too until everyone completes them
   const homeReminders = feedReminders.filter(r => r.recipients.includes(currentUser) || (r.sender === currentUser && r.todoItems));
 
@@ -1343,6 +1345,9 @@ export default function App() {
     const closed = lastExpanded.current;
     lastExpanded.current = expandedId;
     if (closed && closed !== expandedId && hasNewMessages(closed)) markSeen(closed);
+    // Opening a to-do list counts as having seen it
+    const opened = expandedId ? reminders.find(r => r.id === expandedId) : null;
+    if (opened?.todoItems && !seenAt[opened.id]) markSeen(opened.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expandedId]);
 
@@ -1675,9 +1680,10 @@ export default function App() {
   const unreadPriorityCount = inboxReminders.filter(r => r.prioritizedAt && !r.checkedOut && !r.archived).length;
 
   // One Home list (rich cards). Unread uses several of these — one per section.
-  const renderHomeList = (list: Reminder[], emptyMessage?: string) => (
+  const renderHomeList = (list: Reminder[], emptyMessage?: string, opts: { openIds?: Set<string> } = {}) => (
             <ReminderList
               richCards
+              openIds={opts.openIds}
               reminders={list}
               viewType="received"
               currentUser={currentUser}
@@ -1703,7 +1709,7 @@ export default function App() {
               swipeActionsFor={allMessagesFilter === 'favorited' ? favoriteSwipeActions : undefined}
               // Favorites can always be held and dragged (to file into a folder); rearranging
               // by dropping between cards only happens in Custom order
-              reorderable={sortSettings[allMessagesFilter].key === 'custom' || (allMessagesFilter === 'favorited' && foldersReady)}
+              reorderable={!opts.openIds && (sortSettings[allMessagesFilter].key === 'custom' || (allMessagesFilter === 'favorited' && foldersReady))}
               allowReorder={sortSettings[allMessagesFilter].key === 'custom'}
               dropTargets={allMessagesFilter === 'favorited' && foldersReady}
               onDragActiveChange={setFavoriteDragging}
@@ -1752,7 +1758,7 @@ export default function App() {
     // Whose nudges are waiting, newest first — tap a bubble to open that chat
     const newFrom: { key: string; label: string; avatarName: string; open: string }[] = [];
     [...inboxReminders]
-      .filter(r => !r.checkedOut && !r.archived && r.sender !== currentUser)
+      .filter(r => isNewToMe(r) && r.sender !== currentUser)
       .sort((x, y) => y.createdAt.getTime() - x.createdAt.getTime())
       .forEach(r => {
         const groupKey = groupKeyFor(r);
@@ -1764,8 +1770,13 @@ export default function App() {
       });
 
     const stillOpen = (r: Reminder) => !r.checkedOut || r.id === expandedId;
-    const priority = list.filter(r => r.prioritizedAt && stillOpen(r));
-    const rest = list.filter(r => !priority.includes(r));
+    // "Up next": the first regular nudge waiting for you sits already open at the top.
+    // Check it off and the next one moves up. (To-do lists stay in the list below.)
+    const ordered = [...list.filter(r => r.prioritizedAt && stillOpen(r)), ...list.filter(r => !(r.prioritizedAt && stillOpen(r)))];
+    const upNext = ordered.find(r => !r.todoItems && !r.checkedOut && r.recipients.includes(currentUser));
+    const remaining = upNext ? list.filter(r => r !== upNext) : list;
+    const priority = remaining.filter(r => r.prioritizedAt && stillOpen(r));
+    const rest = remaining.filter(r => !priority.includes(r));
     const today = rest.filter(r => isToday(r.createdAt));
     const earlier = rest.filter(r => !isToday(r.createdAt));
     const sectionTitle = (text: string) => <p className="text-xs text-stone-500 mt-4 mb-1.5">{text}</p>;
@@ -1790,6 +1801,13 @@ export default function App() {
           </div>
         )}
         {reopened.length > 0 && <>{sectionTitle('New messages')}{renderHomeList(reopened)}</>}
+        {upNext && (
+          <>
+            <p className="text-xs font-medium text-brand-700 mt-4 mb-1.5">Up next:</p>
+            {renderHomeList([upNext], undefined, { openIds: new Set([upNext.id]) })}
+            {remaining.length > 0 && <div className="mt-5 border-t border-stone-300/50" aria-hidden="true" />}
+          </>
+        )}
         {priority.length > 0 && <>{sectionTitle('🤯 Priority')}{renderHomeList(priority)}</>}
         {today.length > 0 && <>{sectionTitle('Today')}{renderHomeList(today)}</>}
         {earlier.length > 0 && <>{sectionTitle('Earlier')}{renderHomeList(earlier)}</>}

@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Globe, Music, Video, Type as TypeIcon, Sparkles, UtensilsCrossed, Lightbulb, Send, X, Paperclip, Loader2, Link2, Bookmark, ListChecks, Plus, FileText } from 'lucide-react';
 import type { ReminderType, NewNudge, Attachment } from '../App';
 import { supabase } from '../utils/supabase/client';
+import { guessCategory } from '../utils/guessCategory';
 import nudgeLogo from '../../imports/image-3.png';
 
 // lucide-react doesn't have a literal money-bag glyph, so this renders the
@@ -309,8 +310,16 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
     setSubmitting(true);
     const resolved = await resolveTitleAndPreview();
 
+    // No category picked? Work one out from the link and the words.
+    const finalType = type ?? (isTodo ? null : guessCategory({
+      url: normalizeUrl(url) || undefined,
+      title: resolved.title,
+      content,
+      attachments,
+    }));
+
     batches.forEach(recipients => onSubmit({
-      type,
+      type: finalType,
       title: resolved.title,
       content: isTodo ? '' : content,
       url: isTodo ? undefined : (normalizeUrl(url) || undefined),

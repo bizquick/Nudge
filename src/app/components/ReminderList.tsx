@@ -55,6 +55,8 @@ interface ReminderListProps {
   openMessagesId?: string | null;
   /** Who has checked each nudge (for "Not checked yet" in groups) */
   checkedBy?: Record<string, string[]>;
+  /** Nudges shown already open (Home's "Up next") */
+  openIds?: Set<string>;
 }
 
 export function ReminderList({
@@ -95,7 +97,8 @@ export function ReminderList({
   pendingSent,
   onWithdraw,
   openMessagesId,
-  checkedBy
+  checkedBy,
+  openIds
 }: ReminderListProps) {
   // Drag to reorder. Pick a card up by pressing and holding anywhere on it
   // (or instantly from the grab strip at its top); it then follows your
@@ -431,7 +434,7 @@ export function ReminderList({
             onUpvote={onUpvote}
             onAddMessage={onAddMessage}
             onToggleReaction={onToggleReaction}
-            isSelected={selectedId === reminder.id}
+            isSelected={selectedId === reminder.id || !!openIds?.has(reminder.id)}
             onSelect={handleSelect}
             folderOptions={folderOptions}
             onToggleTodo={onToggleTodo}
