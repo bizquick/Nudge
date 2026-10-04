@@ -8,7 +8,7 @@ import { Avatar, AvatarContext } from './components/Avatar';
 import { AvatarPicker } from './components/AvatarPicker';
 import { AuthScreen } from './components/AuthScreen';
 import { Insights } from './components/Insights';
-import { Send, Archive, LogOut, Share2, Inbox as InboxIcon, Users, User, ChevronLeft, ChevronDown, TrendingUp, Pencil, BellOff, Bell, Trash2, StarOff, CheckCheck, BarChart3, ChevronRight } from 'lucide-react';
+import { Send, Archive, LogOut, Share2, Inbox as InboxIcon, Users, User, ChevronLeft, ChevronDown, TrendingUp, Pencil, BellOff, Bell, Trash2, StarOff, CheckCheck, BarChart3, ChevronRight, RefreshCw } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { ImageWithFallback } from './components/figma/ImageWithFallback';
 import nudgeLogo from '../imports/image-3.png';
@@ -17,6 +17,7 @@ import { supabase } from './utils/supabase/client';
 import { registerPush, unregisterPush, setBadge } from './utils/push';
 import { App as CapacitorApp } from '@capacitor/app';
 import { Share } from '@capacitor/share';
+import { Haptics, ImpactStyle } from '@capacitor/haptics';
 
 export type ReminderType = 'website' | 'music' | 'video' | 'text' | 'unnecessary' | 'interesting' | 'food' | 'lifehack';
 
@@ -313,6 +314,8 @@ export default function App() {
 
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const pullRef = useRef<HTMLDivElement>(null);
+  const pullIconRef = useRef<HTMLDivElement>(null);
 
   const loadProfile = useCallback(async (userId: string) => {
     const { data, error } = await supabase
@@ -1036,6 +1039,72 @@ export default function App() {
   const reopenedReminders = allUserReminders.filter(r => hasNewMessages(r.id));
   // The red number on Home and the app icon: new nudges plus checked ones with new messages
   const homeBadge = unreadCount + reopenedReminders.length;
+  // Pull to refresh: drag the list down from the very top and let go to reload
+  // everything. Built by hand (iPhone apps don't get the browser's version), and it
+  // moves the page directly rather than re-rendering, so it stays smooth.
+  useEffect(() => {
+    const el = scrollRef.current;
+    const bar = pullRef.current;
+    const icon = pullIconRef.current;
+    if (!el || !bar || !icon) return;
+    const THRESHOLD = 64, MAX = 110;
+    let startY: number | null = null, startX = 0, pulling = false, dist = 0, armed = false, busy = false;
+
+    const show = (height: number, animate: boolean) => {
+      bar.style.transition = animate ? 'height 250ms cubic-bezier(0.22, 1, 0.36, 1)' : 'none';
+      bar.style.height = `${height}px`;
+      icon.style.opacity = busy ? '1' : String(Math.min(1, height / THRESHOLD));
+      if (!busy) icon.style.transform = `rotate(${height * 3}deg)`;
+    };
+    const onStart = (e: TouchEvent) => {
+      // Not while scrolled down, already refreshing, or dragging a nudge around
+      if (busy || el.scrollTop > 0 || document.body.dataset.nudgeDragging) { startY = null; return; }
+      startY = e.touches[0].clientY;
+      startX = e.touches[0].clientX;
+      pulling = false;
+    };
+    const onMove = (e: TouchEvent) => {
+      if (startY === null) return;
+      if (document.body.dataset.nudgeDragging) { startY = null; if (pulling) show(0, true); pulling = false; return; }
+      const dy = e.touches[0].clientY - startY;
+      const dx = e.touches[0].clientX - startX;
+      if (!pulling) {
+        if (dy > 8 && dy > Math.abs(dx) * 1.5 && el.scrollTop <= 0) pulling = true;
+        else { if (dy < 0 || Math.abs(dx) > 10) startY = null; return; }
+      }
+      e.preventDefault(); // we're pulling, not scrolling (also stops iPhone's rubber-band)
+      dist = Math.min(MAX, Math.max(0, dy - 8) * 0.5);
+      show(dist, false);
+      const nowArmed = dist >= THRESHOLD;
+      if (nowArmed && !armed) Haptics.impact({ style: ImpactStyle.Light }).catch(() => {});
+      armed = nowArmed;
+    };
+    const onEnd = async () => {
+      if (startY === null || !pulling) { startY = null; return; }
+      startY = null;
+      pulling = false;
+      if (!armed) { show(0, true); return; }
+      armed = false;
+      busy = true;
+      show(52, true);
+      icon.classList.add('animate-spin');
+      try { await loadData(); } catch { /* the error banner covers it */ }
+      icon.classList.remove('animate-spin');
+      busy = false;
+      show(0, true);
+    };
+    el.addEventListener('touchstart', onStart, { passive: true });
+    el.addEventListener('touchmove', onMove, { passive: false });
+    el.addEventListener('touchend', onEnd);
+    el.addEventListener('touchcancel', onEnd);
+    return () => {
+      el.removeEventListener('touchstart', onStart);
+      el.removeEventListener('touchmove', onMove);
+      el.removeEventListener('touchend', onEnd);
+      el.removeEventListener('touchcancel', onEnd);
+    };
+  }, [dataLoading, currentUser, loadData]);
+
   // Opening a nudge and then closing it counts as seeing its new messages (it stays
   // in place while open, then settles back into Checked)
   const lastExpanded = useRef<string | null>(null);
@@ -1619,6 +1688,12 @@ export default function App() {
           if (expandedId && !(e.target as HTMLElement).closest('[data-nudge-card], button, a, input, textarea')) setExpandedId(null);
         }}
       >
+        {/* Pull-to-refresh spinner: grows as you drag down from the top */}
+        <div ref={pullRef} className="h-0 overflow-hidden flex items-end justify-center" aria-hidden="true">
+          <div ref={pullIconRef} className="mb-3 w-8 h-8 rounded-full bg-white shadow flex items-center justify-center text-brand-600" style={{ opacity: 0 }}>
+            <RefreshCw className="w-4 h-4" />
+          </div>
+        </div>
         {/* In a chat, a short thread sits at the bottom by the buttons, like Messages */}
         <div className={`max-w-2xl mx-auto px-4 pb-4 w-full ${selectedSender ? 'min-h-full flex flex-col justify-end' : ''}`}>
           {selectedSender ? (

@@ -266,6 +266,7 @@ export function ReminderList({
     const d = drag.current;
     if (!d) return;
     drag.current = null;
+    delete document.body.dataset.nudgeDragging;
     if (d.frame != null) cancelAnimationFrame(d.frame);
 
     // Remember where every card is on screen right now, so the FLIP animation
@@ -325,6 +326,7 @@ export function ReminderList({
     };
     setDraggingId(id);
     onDragActiveChange?.(true);
+    document.body.dataset.nudgeDragging = '1'; // tells pull-to-refresh to stay out of the way
     // A light tap you can feel, so you know the card is picked up (no-op where unsupported)
     try {
       Haptics.impact({ style: ImpactStyle.Light }).catch(() => {});
