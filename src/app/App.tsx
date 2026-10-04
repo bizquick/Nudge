@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import { ReminderList } from './components/ReminderList';
 import { QuickSendModal } from './components/QuickSendModal';
 import { SortMenu, sortReminders, loadSortSetting, saveSortSetting, type SortSetting } from './components/SortMenu';
@@ -7,7 +7,7 @@ import { SwipeRow } from './components/SwipeRow';
 import { Avatar, AvatarContext } from './components/Avatar';
 import { AvatarPicker } from './components/AvatarPicker';
 import { AuthScreen } from './components/AuthScreen';
-import { Send, Archive, LogOut, Share2, Inbox as InboxIcon, Users, User, ChevronLeft, ChevronDown, TrendingUp, Pencil, BellOff, Bell } from 'lucide-react';
+import { Send, Archive, LogOut, Share2, Inbox as InboxIcon, Users, User, ChevronLeft, ChevronDown, TrendingUp, Pencil, BellOff, Bell, Trash2, StarOff, CheckCheck } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { ImageWithFallback } from './components/figma/ImageWithFallback';
 import nudgeLogo from '../imports/image-3.png';
@@ -57,6 +57,10 @@ export interface Reminder {
   prioritizedAt: Date | null;
   /** To-do list nudges carry their checklist here — null for ordinary nudges */
   todoItems: TodoItem[] | null;
+  /** When it was checked off (for a to-do list: when the last person tapped Complete) */
+  checkedAt: Date | null;
+  /** To-do lists: everyone who has tapped Complete. It counts as checked once all of them have. */
+  completedBy: string[];
 }
 
 export interface TodoItem {
@@ -65,7 +69,7 @@ export interface TodoItem {
 }
 
 /** What the New Nudge form hands back: a nudge to create, plus the "prioritize" choice */
-export type NewNudge = Omit<Reminder, 'id' | 'createdAt' | 'sender' | 'checkedOut' | 'prioritizedAt'> & { prioritized: boolean };
+export type NewNudge = Omit<Reminder, 'id' | 'createdAt' | 'sender' | 'checkedOut' | 'prioritizedAt' | 'checkedAt' | 'completedBy'> & { prioritized: boolean };
 
 function rowToReminder(row: any, reactions: Reaction[] = [], voters: string[] = []): Reminder {
   return {
@@ -90,7 +94,9 @@ function rowToReminder(row: any, reactions: Reaction[] = [], voters: string[] = 
     reactions,
     createdAt: new Date(row.created_at),
     prioritizedAt: row.prioritized_at ? new Date(row.prioritized_at) : null,
-    todoItems: Array.isArray(row.todo_items) ? row.todo_items : null
+    todoItems: Array.isArray(row.todo_items) ? row.todo_items : null,
+    checkedAt: row.checked_at ? new Date(row.checked_at) : null,
+    completedBy: Array.isArray(row.completed_by) ? row.completed_by : []
   };
 }
 
@@ -157,6 +163,22 @@ function withPrioritiesFirst(list: Reminder[], openId: string | null, sinkChecke
     .map(x => x.r);
 }
 
+// Chat order, like Messages: 🤯 priorities pinned at the top (oldest priority
+// first), then everything else oldest → newest, so the newest nudge sits at the bottom.
+function chatOrder(list: Reminder[]): Reminder[] {
+  const priorities = list.filter(r => r.prioritizedAt)
+    .sort((a, b) => a.prioritizedAt!.getTime() - b.prioritizedAt!.getTime());
+  const rest = list.filter(r => !r.prioritizedAt)
+    .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  return [...priorities, ...rest];
+}
+
+// Done with: checked off, or archived. These live in a chat's Checked view and
+// Home's Checked list. (A to-do list only counts as checked once everyone taps Complete.)
+function isDone(r: Reminder): boolean {
+  return r.checkedOut || r.archived;
+}
+
 // Saved to the sender's own My Nudges (alone or alongside real recipients).
 function isSavedToSelf(r: Reminder, user: string): boolean {
   return r.sender === user && r.recipients.includes(user);
@@ -175,7 +197,8 @@ export default function App() {
   const [mobileTab, setMobileTab] = useState<'inbox' | 'people' | 'popular' | 'you'>('inbox');
   const [popularSubTab, setPopularSubTab] = useState<'top' | 'explore'>('top');
   const [exploreSeed, setExploreSeed] = useState(0);
-  const [showArchived, setShowArchived] = useState(false);
+  // Inside a chat: showing its Checked nudges instead of the open ones
+  const [showChecked, setShowChecked] = useState(false);
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [quickSendTo, setQuickSendTo] = useState<string | null>(null);
@@ -217,19 +240,29 @@ export default function App() {
   const [quickSendGroup, setQuickSendGroup] = useState<string[] | null>(null);
   const selectSender = (sender: string | null) => {
     setSelectedSender(sender);
+    setShowChecked(false);
     setExpandedId(null);
     setEditingGroupName(false);
     setEditingNote(false);
   };
 
   const [rawReminders, setReminders] = useState<Reminder[]>([]);
+  // Nudges you just deleted: hidden right away, really deleted once the Undo window passes
+  const [pendingDeletes, setPendingDeletes] = useState<Set<string>>(new Set());
+  const deleteTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  // When you last opened each nudge (yours only) — a checked nudge with a newer
+  // message from someone else comes back to the top of Home
+  const [seenAt, setSeenAt] = useState<Record<string, Date>>({});
   // Your own favorites (null until loaded, or if the favorites table isn't set up yet —
   // then the old shared "favorited" switch is used as a fallback)
   const [favoriteIds, setFavoriteIds] = useState<Set<string> | null>(null);
   // Each nudge as *you* see it: favorited means favorited by you, nobody else
   const reminders = useMemo(
-    () => favoriteIds ? rawReminders.map(r => ({ ...r, favorited: favoriteIds.has(r.id) })) : rawReminders,
-    [rawReminders, favoriteIds]
+    () => {
+      const visible = pendingDeletes.size ? rawReminders.filter(r => !pendingDeletes.has(r.id)) : rawReminders;
+      return favoriteIds ? visible.map(r => ({ ...r, favorited: favoriteIds.has(r.id) })) : visible;
+    },
+    [rawReminders, favoriteIds, pendingDeletes]
   );
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [avatars, setAvatars] = useState<Record<string, string>>({});
@@ -245,6 +278,7 @@ export default function App() {
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
 
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const loadProfile = useCallback(async (userId: string) => {
     const { data, error } = await supabase
@@ -347,6 +381,10 @@ export default function App() {
     if (noteErr) console.warn('Chat descriptions unavailable:', noteErr);
     else setChatNotes(Object.fromEntries((noteRows || []).map(n => [n.chat_key, n.note])));
 
+    const { data: readRows, error: readErr } = await supabase.from('nudge_reads').select('reminder_id, seen_at');
+    if (readErr) console.warn('Read times unavailable:', readErr);
+    else setSeenAt(Object.fromEntries((readRows || []).map(r => [r.reminder_id, new Date(r.seen_at)])));
+
     const { data: muteRows, error: muteErr } = await supabase.from('mutes').select('target');
     if (muteErr) console.warn('Mutes unavailable:', muteErr);
     else setMutes(new Set((muteRows || []).map(m => m.target)));
@@ -403,7 +441,7 @@ export default function App() {
     if (!currentUser) return;
     // Groups are named from inside the group chat, so a new nudge to an existing
     // group carries that group's current name along with it.
-    const newKey = groupKeyFor({ ...reminder, sender: currentUser } as Reminder);
+    const newKey = groupKeyFor({ ...reminder, sender: currentUser } as unknown as Reminder);
     const existingGroupName = newKey
       ? reminders.find(r => r.groupName && groupKeyFor(r) === newKey)?.groupName ?? null
       : null;
@@ -479,25 +517,22 @@ export default function App() {
     const reminder = reminders.find(r => r.id === id);
     if (!reminder) return;
     const wasCheckedOut = reminder.checkedOut;
-    const nextValue = !wasCheckedOut;
-    setReminders(prev => prev.map(r => r.id === id ? { ...r, checkedOut: nextValue } : r));
 
+    // Checking off also records when, so everyone in the nudge can see it
     const applyValue = async (value: boolean) => {
-      const { error } = await supabase.from('reminders').update({ checked_out: value }).eq('id', id);
+      const checkedAt = value ? new Date() : null;
+      setReminders(prev => prev.map(r => r.id === id ? { ...r, checkedOut: value, checkedAt } : r));
+      const { error } = await supabase.from('reminders')
+        .update({ checked_out: value, checked_at: checkedAt ? checkedAt.toISOString() : null })
+        .eq('id', id);
       if (error) console.error(error);
     };
-    applyValue(nextValue);
+    applyValue(!wasCheckedOut);
 
     if (!wasCheckedOut) {
-      toast('Marked as read', {
+      toast('Checked', {
         duration: 4000,
-        action: {
-          label: 'Undo',
-          onClick: () => {
-            setReminders(prev => prev.map(r => r.id === id ? { ...r, checkedOut: false } : r));
-            applyValue(false);
-          },
-        },
+        action: { label: 'Undo', onClick: () => applyValue(false) },
       });
     }
   };
@@ -515,6 +550,74 @@ export default function App() {
     if (nextValue) {
       toast('Archived', { duration: 4000, action: { label: 'Undo', onClick: () => apply(false) } });
     }
+  };
+
+  // The sender deletes a nudge for everyone in it. It disappears right away; the real
+  // delete happens once the Undo window is over (so Undo needs no rebuilding).
+  const handleDeleteNudge = (id: string) => {
+    setPendingDeletes(prev => new Set(prev).add(id));
+    if (expandedId === id) setExpandedId(null);
+    const restore = () => setPendingDeletes(prev => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    const timer = setTimeout(async () => {
+      deleteTimers.current.delete(id);
+      const { error } = await supabase.rpc('delete_my_nudge', { p_id: id });
+      if (error) {
+        console.error(error);
+        toast('Could not delete that nudge');
+        restore();
+        return;
+      }
+      setReminders(prev => prev.filter(r => r.id !== id));
+      restore();
+    }, 4500);
+    deleteTimers.current.set(id, timer);
+    toast('Nudge deleted', {
+      duration: 4000,
+      action: {
+        label: 'Undo',
+        onClick: () => {
+          clearTimeout(deleteTimers.current.get(id));
+          deleteTimers.current.delete(id);
+          restore();
+        },
+      },
+    });
+  };
+
+  // To-do lists: tap Complete (or tap again to undo). The database flips the list to
+  // checked once everyone in it has completed it.
+  const handleToggleTodoComplete = async (id: string) => {
+    if (!currentUser) return;
+    const reminder = reminders.find(r => r.id === id);
+    if (!reminder?.todoItems) return;
+    const mine = reminder.completedBy.includes(currentUser);
+    const completedBy = mine ? reminder.completedBy.filter(n => n !== currentUser) : [...reminder.completedBy, currentUser];
+    const everyone = Array.from(new Set([reminder.sender, ...reminder.recipients]));
+    const allDone = everyone.every(n => completedBy.includes(n));
+    setReminders(prev => prev.map(r => r.id === id
+      ? { ...r, completedBy, checkedOut: allDone, checkedAt: allDone ? (r.checkedAt ?? new Date()) : null }
+      : r));
+    const { data, error } = await supabase.rpc('toggle_todo_complete', { p_id: id });
+    if (error || !data) {
+      console.error(error);
+      toast('Could not update that to-do list');
+      setReminders(prev => prev.map(r => r.id === id ? reminder : r));
+      return;
+    }
+    setReminders(prev => prev.map(r => r.id === id ? rowToReminder(data, r.reactions, r.voters) : r));
+  };
+
+  // Remember that you've seen a nudge's latest messages (only written when it matters)
+  const markSeen = async (id: string) => {
+    const now = new Date();
+    setSeenAt(prev => ({ ...prev, [id]: now }));
+    const { error } = await supabase.from('nudge_reads')
+      .upsert({ reminder_id: id, seen_at: now.toISOString() }, { onConflict: 'owner_id,reminder_id' });
+    if (error) console.warn('Could not save read time', error);
   };
 
   // 🤯 Priority on or off for a nudge that's already been sent — anyone in the
@@ -571,10 +674,21 @@ export default function App() {
   };
 
   // Favorites are personal: favoriting only adds it to *your* Favorites
-  const handleToggleFavorite = async (id: string) => {
+  const handleToggleFavorite = (id: string) => {
     const reminder = reminders.find(r => r.id === id);
-    if (!reminder) return;
-    const nextValue = !reminder.favorited;
+    if (reminder) setFavorite(id, !reminder.favorited);
+  };
+
+  // Swipe left in Favorites: take it out of your Favorites, with Undo
+  const handleRemoveFavorite = (id: string) => {
+    setFavorite(id, false);
+    toast('Removed from Favorites', {
+      duration: 4000,
+      action: { label: 'Undo', onClick: () => setFavorite(id, true) },
+    });
+  };
+
+  const setFavorite = async (id: string, nextValue: boolean) => {
     if (!favoriteIds) {
       // Favorites table not set up yet — fall back to the old shared switch
       setReminders(prev => prev.map(r => r.id === id ? { ...r, favorited: nextValue } : r));
@@ -846,9 +960,40 @@ export default function App() {
   // (those list you as a recipient too) — not ones you only sent to others.
   const inboxReminders = reminders.filter(r => r.recipients.includes(currentUser));
   const unreadCount = inboxReminders.filter(r => !r.checkedOut && !r.archived).length;
+  // To-do lists are shared work, so ones you sent stay on your Home too until everyone completes them
+  const homeReminders = reminders.filter(r => r.recipients.includes(currentUser) || (r.sender === currentUser && r.todoItems));
 
-  const activeReminders = allUserReminders.filter(r => showArchived ? r.archived : !r.archived);
-  const archivedCount = allUserReminders.filter(r => r.archived).length;
+  // A checked nudge that got a message from someone else since you checked it
+  // (or last opened it): it stays checked, but comes back to the top of Home.
+  const latestOtherMessage = new Map<string, Date>();
+  messages.forEach(m => {
+    if (m.sender === currentUser) return;
+    const prev = latestOtherMessage.get(m.reminderId);
+    if (!prev || m.createdAt > prev) latestOtherMessage.set(m.reminderId, m.createdAt);
+  });
+  const hasNewMessages = (id: string) => {
+    const r = reminders.find(x => x.id === id);
+    const latest = latestOtherMessage.get(id);
+    if (!r || !latest || !isDone(r)) return false;
+    const seen = seenAt[id];
+    const baseline = seen && r.checkedAt ? (seen > r.checkedAt ? seen : r.checkedAt) : (seen ?? r.checkedAt);
+    return !!baseline && latest > baseline;
+  };
+  const reopenedReminders = allUserReminders.filter(r => hasNewMessages(r.id));
+  // The red number on Home and the app icon: new nudges plus checked ones with new messages
+  const homeBadge = unreadCount + reopenedReminders.length;
+  // Opening a nudge and then closing it counts as seeing its new messages (it stays
+  // in place while open, then settles back into Checked)
+  const lastExpanded = useRef<string | null>(null);
+  useEffect(() => {
+    const closed = lastExpanded.current;
+    lastExpanded.current = expandedId;
+    if (closed && closed !== expandedId && hasNewMessages(closed)) markSeen(closed);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expandedId]);
+
+  // Chats list every nudge you're in; each chat splits them into open and Checked
+  const activeReminders = allUserReminders;
 
   const hiddenContactNames = new Set(hiddenContacts.map(h => h.name));
   const archivedContactNames = hiddenContacts.filter(h => h.status === 'archived').map(h => h.name).sort();
@@ -869,7 +1014,7 @@ export default function App() {
       const key = groupKeyFor(r)!;
       const participants = Array.from(new Set([r.sender, ...r.recipients])).filter(p => p !== currentUser);
       const existing = map.get(key);
-      const isUnread = r.recipients.includes(currentUser) && !r.checkedOut;
+      const isUnread = r.recipients.includes(currentUser) && !r.checkedOut && !r.archived;
       if (existing) {
         existing.count += 1;
         if (isUnread) existing.unread += 1;
@@ -900,28 +1045,45 @@ export default function App() {
     ? null
     : selectedGroupKey ? 'group:' + selectedGroupKey : 'contact:' + selectedSender;
 
+  // The nudges in the open chat (both open and checked)
+  const inSelectedChat = (r: Reminder) =>
+    selectedSender === 'My Reminders' ? isSavedToSelf(r, currentUser)
+      : selectedGroupKey ? groupKeyFor(r) === selectedGroupKey
+      : !isGroupReminder(r) && (r.sender === selectedSender || realRecipients(r)[0] === selectedSender);
+  const chatReminders = selectedSender ? allUserReminders.filter(inSelectedChat) : [];
+  const chatCheckedCount = chatReminders.filter(isDone).length;
+  const chatHasNewInChecked = chatReminders.some(r => hasNewMessages(r.id));
+
   const displayedReminders = (() => {
-    if (selectedSender === 'My Reminders') {
-      return withPrioritiesFirst(reminders.filter(r => isSavedToSelf(r, currentUser) && !r.archived), expandedId, true);
+    if (selectedSender) {
+      // A nudge you have open stays put until you close it, even if you just checked it
+      return chatOrder(chatReminders.filter(r => r.id === expandedId || (showChecked ? isDone(r) : !isDone(r))));
     }
-    if (selectedGroupKey) {
-      return withPrioritiesFirst(activeReminders.filter(r => groupKeyFor(r) === selectedGroupKey), expandedId, true);
+    const sort = sortSettings[allMessagesFilter];
+    if (allMessagesFilter === 'unread') {
+      return withPrioritiesFirst(sortReminders(homeReminders.filter(r => (!isDone(r) || r.id === expandedId)), sort), expandedId, false);
     }
-    if (!selectedSender) {
-      const sort = sortSettings[allMessagesFilter];
-      if (allMessagesFilter === 'unread') {
-        return withPrioritiesFirst(sortReminders(inboxReminders.filter(r => (!r.checkedOut || r.id === expandedId) && !r.archived), sort), expandedId, false);
-      }
-      if (allMessagesFilter === 'favorited') {
-        const favorites = allRemindersForUser.filter(r => r.favorited);
-        return sortReminders(activeFolder ? favorites.filter(r => folderOfReminder[r.id] === activeFolder) : favorites, sort);
-      }
-      if (allMessagesFilter === 'archived') return sortReminders(allRemindersForUser.filter(r => r.archived), sort);
+    if (allMessagesFilter === 'favorited') {
+      const favorites = allRemindersForUser.filter(r => r.favorited);
+      return sortReminders(activeFolder ? favorites.filter(r => folderOfReminder[r.id] === activeFolder) : favorites, sort);
     }
-    return withPrioritiesFirst(activeReminders.filter(r =>
-      !isGroupReminder(r) && (r.sender === selectedSender || realRecipients(r)[0] === selectedSender)
-    ), expandedId, true);
+    // Checked: everything you've checked off or archived
+    return sortReminders(allRemindersForUser.filter(r => r.archived || (r.checkedOut && homeReminders.includes(r))), sort);
   })();
+
+  // Chats open at the bottom, where the newest nudge is (and jump there when one arrives)
+  const chatCount = selectedSender ? displayedReminders.length : 0;
+  const lastChatView = useRef('');
+  useLayoutEffect(() => {
+    const view = `${selectedSender}|${showChecked}`;
+    const el = scrollRef.current;
+    if (!selectedSender || !el) { lastChatView.current = ''; return; }
+    const isNewView = view !== lastChatView.current;
+    lastChatView.current = view;
+    if (isNewView || !expandedId) el.scrollTop = el.scrollHeight;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSender, showChecked, chatCount]);
+
 
   // Popular is shared by everyone. (Archiving only tidies your own inbox — it no
   // longer pulls a public nudge out of Popular for everybody.)
@@ -945,6 +1107,36 @@ export default function App() {
       },
     ];
   };
+
+  // Swipe-left buttons on a nudge inside a chat: silence it, and (sender only) delete it
+  const nudgeSwipeActions = (r: Reminder) => {
+    const muted = mutes.has('nudge:' + r.id);
+    return [
+      {
+        key: 'mute',
+        label: muted ? 'Unmute' : 'Silence',
+        icon: muted ? <Bell className="w-5 h-5" /> : <BellOff className="w-5 h-5" />,
+        onClick: () => handleToggleMute('nudge:' + r.id, `"${r.title}"`),
+        className: 'bg-indigo-500 text-white',
+      },
+      ...(r.sender === currentUser ? [{
+        key: 'delete',
+        label: 'Delete',
+        icon: <Trash2 className="w-5 h-5" />,
+        onClick: () => handleDeleteNudge(r.id),
+        className: 'bg-red-500 text-white',
+      }] : []),
+    ];
+  };
+
+  // Swipe left on a favorite: take it out of your Favorites
+  const favoriteSwipeActions = (r: Reminder) => [{
+    key: 'unfavorite',
+    label: 'Remove',
+    icon: <StarOff className="w-5 h-5" />,
+    onClick: () => handleRemoveFavorite(r.id),
+    className: 'bg-red-500 text-white',
+  }];
 
   const publicReminders = reminders.filter(r => r.isPublic);
 
@@ -1030,8 +1222,8 @@ export default function App() {
 
   // Keep the red number on the app icon equal to your unread count
   useEffect(() => {
-    if (currentUser && !dataLoading) setBadge(unreadCount);
-  }, [currentUser, dataLoading, unreadCount]);
+    if (currentUser && !dataLoading) setBadge(homeBadge);
+  }, [currentUser, dataLoading, homeBadge]);
 
   const exploreReminders = useMemo(() => {
     const shuffled = publicReminders.filter(r => r.sender !== currentUser && !r.voters.includes(currentUser));
@@ -1066,7 +1258,11 @@ export default function App() {
               onForward={setForwardingReminder}
               onToggleReaction={handleToggleReaction}
               onToggleTodo={handleToggleTodo}
+              onToggleTodoComplete={handleToggleTodoComplete}
               onTogglePriority={handleTogglePriority}
+              // Favorites are personal: no check mark there, just when it was sent and checked
+              hideCheck={allMessagesFilter === 'favorited'}
+              swipeActionsFor={allMessagesFilter === 'favorited' ? favoriteSwipeActions : undefined}
               // Favorites can always be held and dragged (to file into a folder); rearranging
               // by dropping between cards only happens in Custom order
               reorderable={sortSettings[allMessagesFilter].key === 'custom' || (allMessagesFilter === 'favorited' && foldersReady)}
@@ -1080,7 +1276,7 @@ export default function App() {
                 allMessagesFilter === 'unread'
                   ? "You're all caught up. New nudges from friends will show up here."
                   : allMessagesFilter === 'archived'
-                    ? 'Nothing archived. Nudges you archive will wait here.'
+                    ? 'Nothing checked yet. Nudges you check off will wait here.'
                     : activeFolder
                       ? 'This folder is empty. Go to All, then hold a favorite and drag it onto this folder.'
                       : 'No favorites yet. Open a nudge and tap the star to save it here.'
@@ -1095,8 +1291,11 @@ export default function App() {
 
   // Unread: "New from" bubbles, then Priority / Today / Earlier sections
   const renderUnreadHome = () => {
-    const list = displayedReminders;
-    if (list.length === 0) {
+    // Checked nudges with new messages get their own section at the very top
+    // (still counts as new while you have it open, so it doesn't jump away mid-read)
+    const reopened = sortReminders(reopenedReminders, sortSettings.unread);
+    const list = displayedReminders.filter(r => !reopened.includes(r));
+    if (list.length === 0 && reopened.length === 0) {
       return (
         <div className="text-center pt-16 pb-8 px-6">
           <div className="text-5xl mb-3" aria-hidden="true">🎉</div>
@@ -1152,6 +1351,7 @@ export default function App() {
             </div>
           </div>
         )}
+        {reopened.length > 0 && <>{sectionTitle('New messages')}{renderHomeList(reopened)}</>}
         {priority.length > 0 && <>{sectionTitle('🤯 Priority')}{renderHomeList(priority)}</>}
         {today.length > 0 && <>{sectionTitle('Today')}{renderHomeList(today)}</>}
         {earlier.length > 0 && <>{sectionTitle('Earlier')}{renderHomeList(earlier)}</>}
@@ -1328,35 +1528,12 @@ export default function App() {
           )}
         </div>
 
-        {/* Secondary control row: View Archive (thread) or filter tabs (inbox) */}
-        {selectedSender ? (
-          <div className="mb-3 flex items-center justify-between gap-2">
-            {selectedSender === 'My Reminders' ? <span /> : (
-              <button
-                onClick={() => selectedGroupMeta ? setQuickSendGroup(selectedGroupMeta.participants) : setQuickSendTo(selectedSender)}
-                className="min-w-0 flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 text-white active:bg-brand-700 transition-colors"
-              >
-                <Send className="w-4 h-4 shrink-0" />
-                <span className="text-sm truncate">Send {selectedGroupMeta ? (selectedGroupMeta.groupName || 'the group') : selectedSender} a nudge</span>
-              </button>
-            )}
-            <button
-              onClick={() => setShowArchived(!showArchived)}
-              className={`shrink-0 flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-                showArchived
-                  ? 'bg-brand-100 text-brand-700'
-                  : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
-              }`}
-            >
-              <Archive className="w-4 h-4" />
-              <span className="text-sm">{showArchived ? 'Hide Archive' : 'View Archive'}</span>
-            </button>
-          </div>
-        ) : mobileTab === 'inbox' ? (
+        {/* Filter tabs (Home). Inside a chat, its buttons sit at the bottom instead. */}
+        {selectedSender ? null : mobileTab === 'inbox' ? (
           <div className="mb-1 flex gap-2 pt-1 pb-1">
             {(['unread', 'favorited', 'archived'] as const).map(filter => {
               const isActive = allMessagesFilter === filter;
-              const labels = { unread: 'Unread', favorited: 'Favorites', archived: 'Archive' };
+              const labels = { unread: 'Unread', favorited: 'Favorites', archived: 'Checked' };
               return (
                 <button
                   key={filter}
@@ -1378,6 +1555,7 @@ export default function App() {
 
       {/* Scrollable content — only this area scrolls */}
       <div
+        ref={scrollRef}
         className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
         style={{ WebkitOverflowScrolling: 'touch' }}
         // Tapping anywhere outside an open nudge closes it (a checked nudge then leaves Unread)
@@ -1385,13 +1563,19 @@ export default function App() {
           if (expandedId && !(e.target as HTMLElement).closest('[data-nudge-card], button, a, input, textarea')) setExpandedId(null);
         }}
       >
-        <div className="max-w-2xl mx-auto px-4 pb-4 w-full">
+        {/* In a chat, a short thread sits at the bottom by the buttons, like Messages */}
+        <div className={`max-w-2xl mx-auto px-4 pb-4 w-full ${selectedSender ? 'min-h-full flex flex-col justify-end' : ''}`}>
           {selectedSender ? (
+            <>
+            {showChecked && (
+              <p className="text-xs text-stone-500 text-center mb-2">Checked nudges</p>
+            )}
             <ReminderList
               chatLayout={selectedSender !== 'My Reminders'}
-              swipeable
+              swipeActionsFor={nudgeSwipeActions}
               mutedIds={mutes}
-              onToggleMute={(id, title) => handleToggleMute('nudge:' + id, `"${title}"`)}
+              newMessageIds={new Set(reopenedReminders.map(r => r.id))}
+              emptyMessage={showChecked ? 'Nothing checked in this chat yet.' : 'All caught up here. Checked nudges are under Checked below.'}
               reminders={displayedReminders}
               viewType="received"
               currentUser={currentUser}
@@ -1406,8 +1590,10 @@ export default function App() {
               onForward={setForwardingReminder}
               onToggleReaction={handleToggleReaction}
               onToggleTodo={handleToggleTodo}
+              onToggleTodoComplete={handleToggleTodoComplete}
               onTogglePriority={handleTogglePriority}
             />
+            </>
           ) : mobileTab === 'inbox' ? (
             <>
             {allMessagesFilter === 'favorited' && foldersReady && (() => {
@@ -1503,8 +1689,8 @@ export default function App() {
                 >
                   <Avatar name={currentUser} size={48} />
                   <div className="text-left flex-1 min-w-0">
-                    <p className="text-base">My Nudges</p>
-                    <p className="text-sm text-stone-500">{myOwnReminders.length} nudges</p>
+                    <p className="text-lg">My Nudges</p>
+                    <p className="text-[15px] text-stone-500">{myOwnReminders.length} nudges</p>
                   </div>
                 </button>
               )}
@@ -1522,7 +1708,7 @@ export default function App() {
                 const unreadCount = activeReminders
                   .filter(r => {
                     const match = !isGroupReminder(r) && (r.sender === contact || realRecipients(r)[0] === contact);
-                    return match && !r.checkedOut;
+                    return match && r.recipients.includes(currentUser) && !isDone(r);
                   })
                   .length;
 
@@ -1543,11 +1729,11 @@ export default function App() {
                           )}
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="text-base truncate flex items-center gap-1.5">
+                          <p className="text-lg truncate flex items-center gap-1.5">
                             <span className="truncate">{contact}</span>
                             {mutes.has('contact:' + contact) && <BellOff className="w-4 h-4 text-stone-400 shrink-0" aria-label="Silenced" />}
                           </p>
-                          <p className="text-sm text-stone-500 truncate">
+                          <p className="text-[15px] text-stone-500 truncate">
                             {chatNotes['contact:' + contact] && <span className="italic">{chatNotes['contact:' + contact]} · </span>}
                             {count} nudges
                           </p>
@@ -1599,11 +1785,11 @@ export default function App() {
                       )}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="text-base truncate flex items-center gap-1.5">
+                      <p className="text-lg truncate flex items-center gap-1.5">
                         <span className="truncate">{displayName}</span>
                         {mutes.has('group:' + group.key) && <BellOff className="w-4 h-4 text-stone-400 shrink-0" aria-label="Silenced" />}
                       </p>
-                      <p className="text-sm text-stone-500 truncate">
+                      <p className="text-[15px] text-stone-500 truncate">
                         {chatNotes['group:' + group.key] && <span className="italic">{chatNotes['group:' + group.key]} · </span>}
                         {group.count} nudges &middot; {group.participants.length + 1} people
                       </p>
@@ -1620,7 +1806,7 @@ export default function App() {
                     onClick={() => setShowArchivedContacts(!showArchivedContacts)}
                     className="w-full px-3 py-2.5 flex items-center justify-between text-sm text-stone-500 hover:bg-stone-50 rounded-lg transition-colors"
                   >
-                    <span>Archived chats ({archivedContactNames.length})</span>
+                    <span className="text-[15px]">Archived chats ({archivedContactNames.length})</span>
                     <ChevronDown className={`w-4 h-4 transition-transform ${showArchivedContacts ? 'rotate-180' : ''}`} />
                   </button>
                   {showArchivedContacts && archivedContactNames.map(name => (
@@ -1688,13 +1874,45 @@ export default function App() {
         </div>
       </div>
 
+      {/* Chat buttons, like a message bar: send a new nudge here, or flip to the Checked ones */}
+      {selectedSender && (
+        <div className="shrink-0 border-t border-stone-200 px-4 py-2.5" style={{ background: '#FBF6EC' }}>
+          <div className="max-w-2xl mx-auto flex gap-2">
+            {selectedSender !== 'My Reminders' && (
+              <button
+                onClick={() => selectedGroupMeta ? setQuickSendGroup(selectedGroupMeta.participants) : setQuickSendTo(selectedSender)}
+                className="flex-1 min-w-0 h-11 flex items-center justify-center gap-2 px-3 rounded-xl bg-brand-600 text-white active:bg-brand-700 transition-colors"
+              >
+                <Send className="w-4 h-4 shrink-0" />
+                <span className="text-sm truncate">Send to {selectedGroupMeta ? (selectedGroupMeta.groupName || 'group') : selectedSender}</span>
+              </button>
+            )}
+            <button
+              onClick={() => { setShowChecked(v => !v); setExpandedId(null); }}
+              aria-pressed={showChecked}
+              className={`relative flex-1 min-w-0 h-11 flex items-center justify-center gap-2 px-3 rounded-xl border transition-colors ${
+                showChecked
+                  ? 'bg-brand-100 border-brand-300 text-brand-800'
+                  : 'bg-white border-stone-300 text-stone-700 active:bg-stone-100'
+              }`}
+            >
+              <CheckCheck className="w-4 h-4 shrink-0" />
+              <span className="text-sm">Checked{chatCheckedCount > 0 ? ` (${chatCheckedCount})` : ''}</span>
+              {chatHasNewInChecked && !showChecked && (
+                <span className="absolute top-1.5 right-2 w-2.5 h-2.5 rounded-full bg-brand-600" aria-label="New messages" />
+              )}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Bottom Tab Bar — a normal flex child now, not fixed, so the scroll area above sizes correctly */}
       <div
         className="shrink-0 bg-white border-t border-stone-200 flex z-20"
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
       {([
-        { id: 'inbox' as const, label: 'Home', icon: InboxIcon, badge: unreadCount },
+        { id: 'inbox' as const, label: 'Home', icon: InboxIcon, badge: homeBadge },
         { id: 'people' as const, label: 'Nudges', icon: Users, badge: 0 },
       ]).map(tab => (
         <button

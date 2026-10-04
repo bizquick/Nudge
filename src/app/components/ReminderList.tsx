@@ -1,8 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
-import { Bell, BellOff } from 'lucide-react';
 import { ReminderCard, type FolderOptions } from './ReminderCard';
-import { SwipeRow } from './SwipeRow';
+import { SwipeRow, type SwipeAction } from './SwipeRow';
 import type { Reminder, Message } from '../App';
 
 interface ReminderListProps {
@@ -37,10 +36,14 @@ interface ReminderListProps {
   onDragActiveChange?: (active: boolean) => void;
   onDropHover?: (targetId: string | null) => void;
   onDropOnTarget?: (reminderId: string, targetId: string) => void;
-  // Chats: swipe a nudge left to silence its notifications
-  swipeable?: boolean;
+  /** Buttons revealed by swiping a nudge left (chats: silence/delete; Favorites: remove) */
+  swipeActionsFor?: (reminder: Reminder) => SwipeAction[];
   mutedIds?: Set<string>;
-  onToggleMute?: (reminderId: string, title: string) => void;
+  /** Checked nudges with messages you haven't seen */
+  newMessageIds?: Set<string>;
+  /** Favorites: no check mark (they're personal), just when it was sent and checked */
+  hideCheck?: boolean;
+  onToggleTodoComplete?: (reminderId: string) => void;
 }
 
 export function ReminderList({
@@ -71,9 +74,11 @@ export function ReminderList({
   onDragActiveChange,
   onDropHover,
   onDropOnTarget,
-  swipeable,
+  swipeActionsFor,
   mutedIds,
-  onToggleMute
+  newMessageIds,
+  hideCheck,
+  onToggleTodoComplete
 }: ReminderListProps) {
   // Drag to reorder. Pick a card up by pressing and holding anywhere on it
   // (or instantly from the grab strip at its top); it then follows your
@@ -411,9 +416,12 @@ export function ReminderList({
             onSelect={handleSelect}
             folderOptions={folderOptions}
             onToggleTodo={onToggleTodo}
+            onToggleTodoComplete={onToggleTodoComplete}
             onTogglePriority={onTogglePriority}
             rich={richCards}
             muted={muted}
+            hideCheck={hideCheck}
+            hasNewMessages={newMessageIds?.has(reminder.id) ?? false}
             flipped={chatLayout && sentByMe}
             dragHandleProps={
               reorderable
@@ -443,19 +451,9 @@ export function ReminderList({
             // Stop iOS's text-selection/callout from fighting the press-and-hold
             style={reorderable ? { WebkitUserSelect: 'none', userSelect: 'none', WebkitTouchCallout: 'none' } as React.CSSProperties : undefined}
           >
-            {swipeable ? (
-              <SwipeRow
-                disabled={selectedId === reminder.id}
-                actions={[
-                  {
-                    key: 'mute',
-                    label: muted ? 'Unmute' : 'Silence',
-                    icon: muted ? <Bell className="w-5 h-5" /> : <BellOff className="w-5 h-5" />,
-                    onClick: () => onToggleMute?.(reminder.id, reminder.title),
-                    className: 'bg-indigo-500 text-white',
-                  },
-                ]}
-              >
+            {swipeActionsFor ? (
+              // No swiping while a card is open or being dragged
+              <SwipeRow disabled={selectedId === reminder.id || draggingId !== null} actions={swipeActionsFor(reminder)}>
                 {card}
               </SwipeRow>
             ) : card}

@@ -59,6 +59,7 @@ export function SwipeRow({ actions, disabled, children }: { actions: SwipeAction
   const onPointerMove = (e: React.PointerEvent) => {
     const g = gesture.current;
     if (!g) return;
+    if (disabled && !g.swiping) { gesture.current = null; return; } // e.g. the card was picked up to drag
     const dx = e.clientX - g.x;
     const dy = e.clientY - g.y;
     if (!g.swiping) {

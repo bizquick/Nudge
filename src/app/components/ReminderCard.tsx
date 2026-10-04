@@ -40,17 +40,25 @@ interface ReminderCardProps {
   muted?: boolean;
   /** Home-screen style: big preview tile, plus who/when/what on a second line */
   rich?: boolean;
+  /** Favorites: no check mark (they're personal) — the sent/checked times say it all */
+  hideCheck?: boolean;
+  /** A checked nudge with messages you haven't seen yet */
+  hasNewMessages?: boolean;
+  onToggleTodoComplete?: (reminderId: string) => void;
 }
 
-// "now", "5m ago", "2h ago", "Tue", "Sep 3"
-function timeAgo(date: Date) {
-  const mins = Math.floor((Date.now() - date.getTime()) / 60000);
-  if (mins < 1) return 'now';
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  if (hours < 24 * 6) return date.toLocaleDateString(undefined, { weekday: 'short' });
-  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+// "Today 6:45 PM", "Yesterday 9:02 AM", "Sep 3, 6:45 PM", "Sep 3, 2025, 6:45 PM"
+function stampTime(date: Date) {
+  const time = date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  const now = new Date();
+  if (date.toDateString() === now.toDateString()) return `Today ${time}`;
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (date.toDateString() === yesterday.toDateString()) return `Yesterday ${time}`;
+  const day = date.toLocaleDateString(undefined, date.getFullYear() === now.getFullYear()
+    ? { month: 'short', day: 'numeric' }
+    : { month: 'short', day: 'numeric', year: 'numeric' });
+  return `${day}, ${time}`;
 }
 
 function domainOf(url: string) {
@@ -89,7 +97,10 @@ export function ReminderCard({
   onToggleTodo,
   onTogglePriority,
   muted,
-  rich
+  rich,
+  hideCheck,
+  hasNewMessages: hasUnseenMessages,
+  onToggleTodoComplete
 }: ReminderCardProps) {
   const todos = reminder.todoItems;
   const todosDone = todos ? todos.filter(t => t.done).length : 0;
@@ -101,6 +112,22 @@ export function ReminderCard({
   // Only people in a nudge can change it (mark read, favorite, archive) — on someone
   // else's public nudge in Popular those buttons are hidden, since they couldn't save.
   const isParticipant = reminder.sender === currentUser || reminder.recipients.includes(currentUser);
+  // To-do lists: everyone in it taps Complete; it's checked once all of them have
+  const everyone = Array.from(new Set([reminder.sender, ...reminder.recipients]));
+  const iCompleted = reminder.completedBy.includes(currentUser);
+
+  // Small line at the top of the card: when it was sent, and when it was checked
+  const stampLine = (
+    <p className={`text-[11px] leading-4 text-stone-400 truncate ${rich ? 'mb-1.5' : 'mb-1'} ${flipped ? 'text-right' : ''}`}>
+      {[
+        `Sent ${stampTime(reminder.createdAt)}`,
+        isParticipant && reminder.checkedOut
+          ? `${todos ? 'Completed' : 'Checked'}${reminder.checkedAt ? ' ' + stampTime(reminder.checkedAt) : ''}`
+          : null,
+      ].filter(Boolean).join(' · ')}
+      {hasUnseenMessages && <span className="ml-1.5 px-1.5 py-px rounded-full bg-brand-600 text-white text-[10px]">New message</span>}
+    </p>
+  );
   const liked = reminder.voters.includes(currentUser);
   const likeButton = (size: 'sm' | 'md') => onUpvote && (
     <button
@@ -227,6 +254,7 @@ export function ReminderCard({
         className={`cursor-pointer transition-all ${isSelected ? 'p-4 sm:p-5' : 'p-3 sm:p-4'}`}
         onClick={() => onSelect(reminder.id)}
       >
+        {stampLine}
         {!isSelected && rich ? (
           <div className="flex items-center gap-3">
             {/* Big tile: the link's preview image, or the category / to-do icon */}
@@ -255,8 +283,11 @@ export function ReminderCard({
                 <span className="truncate">
                   {[
                     isGroup && reminder.groupName ? reminder.groupName : reminder.sender === currentUser ? 'You' : reminder.sender,
-                    timeAgo(reminder.createdAt),
                     todos ? `To-do ${todosDone}/${todos.length}` : reminder.url ? domainOf(reminder.url) : reminder.type ? CATEGORY_LABELS[reminder.type] : null,
+                    todos && !reminder.checkedOut && reminder.completedBy.length > 0
+                      ? (iCompleted ? 'Waiting on others'
+                        : reminder.completedBy.length === 1 ? `${reminder.completedBy[0]} completed` : `${reminder.completedBy.length} of ${everyone.length} completed`)
+                      : null,
                   ].filter(Boolean).join(' · ')}
                 </span>
                 {muted && <BellOff className="w-3 h-3 text-stone-400 shrink-0" aria-label="Silenced" />}
@@ -321,7 +352,8 @@ export function ReminderCard({
           /* Expanded view — checkmark, type icon, and avatar as a normal row (nothing absolutely positioned, so nothing can overlap) */
           <>
             <div className={`flex items-center gap-3 mb-3 ${flipped ? 'flex-row-reverse' : ''}`}>
-              {isParticipant && <button
+              {/* To-do lists use the Complete buttons below instead */}
+              {isParticipant && !hideCheck && !todos && <button
                 onClick={(e) => {
                   e.stopPropagation();
                   onToggleCheckedOut(reminder.id);
@@ -438,6 +470,39 @@ export function ReminderCard({
               </ul>
             ) : (
               <p className="text-stone-700 mb-3">{reminder.content}</p>
+            )}
+
+            {/* One Complete button per person. Yours you can tap; the others show whether
+                that person has completed it. It moves to Checked once everyone has. */}
+            {todos && (
+              <div className="flex flex-wrap gap-2 mb-3" onClick={(e) => e.stopPropagation()}>
+                {[currentUser, ...everyone.filter(p => p !== currentUser)].filter(p => everyone.includes(p)).map(person => {
+                  const done = reminder.completedBy.includes(person);
+                  const mine = person === currentUser;
+                  return (
+                    <button
+                      key={person}
+                      type="button"
+                      disabled={!mine || !onToggleTodoComplete}
+                      aria-pressed={done}
+                      onClick={() => mine && onToggleTodoComplete?.(reminder.id)}
+                      className={`flex-1 min-w-[130px] h-10 px-3 rounded-xl border flex items-center justify-center gap-1.5 text-sm transition-colors ${
+                        done
+                          ? 'bg-green-600 border-green-600 text-white'
+                          : mine
+                            ? 'bg-white border-brand-600 text-brand-700 active:bg-brand-50'
+                            : 'bg-stone-50 border-stone-200 text-stone-400'
+                      }`}
+                      title={mine ? (done ? 'Tap to undo' : 'Mark complete') : done ? `${person} completed it` : `${person} hasn't completed it yet`}
+                    >
+                      {done && <Check className="w-4 h-4 shrink-0" />}
+                      <span className="truncate">
+                        {mine ? (done ? 'You completed' : 'Complete') : done ? `${person} completed` : `${person}: not yet`}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
             )}
 
             {/* URL Link */}

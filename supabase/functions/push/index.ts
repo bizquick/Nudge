@@ -1,10 +1,10 @@
-// Nudge push notifications — Supabase Edge Function (deployed in Supabase under the name "smart-processor").
+// Nudge push notifications - Supabase Edge Function (deployed in Supabase under the name "smart-processor").
 //
 // The database calls this whenever a nudge or chat message is created (see
 // supabase-push-setup.sql). It looks up who should hear about it, then asks
 // Apple's Push Notification service (APNs) to show a banner on their iPhones.
 //
-// Secrets this needs (Supabase Dashboard → Edge Functions → Secrets):
+// Secrets this needs (Supabase Dashboard -> Edge Functions -> Secrets):
 //   APNS_KEY_P8          the full text of the .p8 key file from Apple
 //   APNS_KEY_ID          the 10-character Key ID shown next to that key
 //   APNS_TEAM_ID         your 10-character Apple Developer Team ID
@@ -16,7 +16,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
 
-// ── Apple sign-in token (valid up to an hour; reuse it for 45 minutes) ──────
+// -- Apple sign-in token (valid up to an hour; reuse it for 45 minutes) ------
 let cachedJwt: { token: string; madeAt: number } | null = null;
 
 const b64url = (data: ArrayBuffer | string) => {
@@ -37,7 +37,7 @@ async function apnsJwt(): Promise<string> {
   return token;
 }
 
-// ── Send one notification to one phone ───────────────────────────────────────
+// -- Send one notification to one phone ---------------------------------------
 interface Alert { title: string; subtitle?: string; body: string }
 
 async function sendToDevice(token: string, alert: Alert, badge: number, threadId: string) {
@@ -56,9 +56,9 @@ async function sendToDevice(token: string, alert: Alert, badge: number, threadId
     const res = await fetch(`https://${host}/3/device/${token}`, { method: 'POST', headers, body: payload });
     if (res.ok) return;
     const reason = (await res.json().catch(() => ({}))).reason as string | undefined;
-    if (reason === 'BadDeviceToken') continue; // wrong server for this phone — try the other
+    if (reason === 'BadDeviceToken') continue; // wrong server for this phone - try the other
     if (reason === 'Unregistered') {
-      // App was deleted or notifications reset on that phone — forget the token
+      // App was deleted or notifications reset on that phone - forget the token
       await db.from('device_tokens').delete().eq('token', token);
       return;
     }
@@ -67,7 +67,7 @@ async function sendToDevice(token: string, alert: Alert, badge: number, threadId
   }
 }
 
-// ── Who to notify, and what to say ──────────────────────────────────────────
+// -- Who to notify, and what to say ------------------------------------------
 async function notify(names: string[], alert: Alert, nudgeId: string, actor: string) {
   const threadId = `nudge-${nudgeId}`;
   for (const name of new Set(names)) {
@@ -89,6 +89,25 @@ async function notify(names: string[], alert: Alert, nudgeId: string, actor: str
 
 const isRecent = (createdAt: string) => Date.now() - new Date(createdAt).getTime() < 2 * 60 * 1000;
 
+// Notification text, cleaned up: no leftover web-page codes like "&amp;" or "&#39;",
+// no invisible formatting characters, no line breaks, and not too long.
+// (Written with plain-ASCII escapes so copying this file can't garble anything.)
+const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
+function clean(text: unknown, max = 180): string {
+  let t = String(text ?? '');
+  t = t.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (whole, code: string) => {
+    if (code[0] === '#') {
+      const n = code[1].toLowerCase() === 'x' ? parseInt(code.slice(2), 16) : parseInt(code.slice(1), 10);
+      return Number.isFinite(n) && n > 0 && n < 0x110000 ? String.fromCodePoint(n) : '';
+    }
+    return ENTITIES[code.toLowerCase()] ?? whole;
+  });
+  // control characters, zero-width and direction marks, the "object replacement" box, BOM
+  t = t.replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff\ufffc\ufffd]/g, ' ');
+  t = t.replace(/\s+/g, ' ').trim();
+  return t.length > max ? t.slice(0, max - 1).trimEnd() + '\u2026' : t;
+}
+
 Deno.serve(async (req) => {
   if (req.headers.get('x-nudge-secret') !== Deno.env.get('NUDGE_WEBHOOK_SECRET')) {
     return new Response('forbidden', { status: 403 });
@@ -102,10 +121,17 @@ Deno.serve(async (req) => {
     if (!nudge || !isRecent(nudge.created_at)) return new Response('skipped');
     const recipients = (nudge.recipients as string[]).filter(name => name !== nudge.sender);
     const isGroup = recipients.length > 1;
+    // Title: who sent it. Subtitle: the group, and whether it's a priority or a to-do list.
+    // Body: just the nudge's title (or its link, if it has no title).
+    const labels = [
+      isGroup ? (clean(nudge.group_name, 60) || `To you and ${recipients.length - 1} other${recipients.length > 2 ? 's' : ''}`) : null,
+      nudge.prioritized_at ? 'Priority' : null,
+      nudge.todo_items ? 'To-do list' : null,
+    ].filter(Boolean);
     await notify(recipients, {
-      title: nudge.sender,
-      ...(isGroup ? { subtitle: nudge.group_name || `To you and ${recipients.length - 1} other${recipients.length > 2 ? 's' : ''}` } : {}),
-      body: `${nudge.prioritized_at ? '🤯 ' : ''}${nudge.todo_items ? 'To-do list: ' : ''}${nudge.title}`,
+      title: clean(nudge.sender, 60),
+      ...(labels.length ? { subtitle: labels.join(' \u00b7 ') } : {}),
+      body: clean(nudge.title) || clean(nudge.url) || 'New nudge',
     }, nudge.id, nudge.sender);
   } else if (table === 'messages') {
     const { data: message } = await db.from('messages').select('*').eq('id', id).maybeSingle();
@@ -114,9 +140,9 @@ Deno.serve(async (req) => {
     if (!nudge) return new Response('skipped');
     const people = [nudge.sender, ...(nudge.recipients as string[])].filter(name => name !== message.sender);
     await notify(people, {
-      title: message.sender,
-      subtitle: nudge.title,
-      body: message.text,
+      title: clean(message.sender, 60),
+      subtitle: clean(nudge.title, 80),
+      body: clean(message.text) || 'New message',
     }, nudge.id, message.sender);
   }
   return new Response('ok');
