@@ -7,7 +7,8 @@ import { SwipeRow } from './components/SwipeRow';
 import { Avatar, AvatarContext } from './components/Avatar';
 import { AvatarPicker } from './components/AvatarPicker';
 import { AuthScreen } from './components/AuthScreen';
-import { Send, Archive, LogOut, Share2, Inbox as InboxIcon, Users, User, ChevronLeft, ChevronDown, TrendingUp, Pencil, BellOff, Bell, Trash2, StarOff, CheckCheck } from 'lucide-react';
+import { Insights } from './components/Insights';
+import { Send, Archive, LogOut, Share2, Inbox as InboxIcon, Users, User, ChevronLeft, ChevronDown, TrendingUp, Pencil, BellOff, Bell, Trash2, StarOff, CheckCheck, BarChart3, ChevronRight } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { ImageWithFallback } from './components/figma/ImageWithFallback';
 import nudgeLogo from '../imports/image-3.png';
@@ -271,6 +272,9 @@ export default function App() {
   const [avatars, setAvatars] = useState<Record<string, string>>({});
   const [chatNotes, setChatNotes] = useState<Record<string, string>>({});
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
+  // The app's owner sees an Insights page (the database decides who that is)
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [showInsights, setShowInsights] = useState(false);
   // Someone's invite link (addlyapp.com/add?u=Name, or the older flagem.app / nudgem.app ones) was opened — start a nudge to them once signed in
   const [pendingInvite, setPendingInvite] = useState<string | null>(null);
   const [editingNote, setEditingNote] = useState(false);
@@ -327,6 +331,8 @@ export default function App() {
     setCurrentUser(null);
     setReminders([]);
     setMessages([]);
+    setIsAdmin(false);
+    setShowInsights(false);
   };
 
   const [hiddenContacts, setHiddenContacts] = useState<{ name: string; status: 'archived' | 'deleted' }[]>([]);
@@ -387,6 +393,9 @@ export default function App() {
     const { data: readRows, error: readErr } = await supabase.from('nudge_reads').select('reminder_id, seen_at');
     if (readErr) console.warn('Read times unavailable:', readErr);
     else setSeenAt(Object.fromEntries((readRows || []).map(r => [r.reminder_id, new Date(r.seen_at)])));
+
+    const { data: adminFlag } = await supabase.rpc('is_admin');
+    setIsAdmin(adminFlag === true);
 
     const { data: muteRows, error: muteErr } = await supabase.from('mutes').select('target');
     if (muteErr) console.warn('Mutes unavailable:', muteErr);
@@ -1881,6 +1890,21 @@ export default function App() {
                   Share my Addly link
                 </button>
               </div>
+              {isAdmin && (
+                <button
+                  onClick={() => setShowInsights(true)}
+                  className="w-full bg-white rounded-xl border border-stone-200 p-4 flex items-center gap-3 text-left active:bg-stone-50"
+                >
+                  <span className="w-10 h-10 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center shrink-0">
+                    <BarChart3 className="w-5 h-5" />
+                  </span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-base">Insights</span>
+                    <span className="block text-sm text-stone-500">App-wide numbers. Only you can see this.</span>
+                  </span>
+                  <ChevronRight className="w-5 h-5 text-stone-400 shrink-0" />
+                </button>
+              )}
               <button
                 onClick={handleSignOut}
                 className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-stone-200 text-stone-700 hover:bg-stone-50 transition-colors"
@@ -1992,6 +2016,7 @@ export default function App() {
           onClose={() => setQuickSendTo(null)}
         />
       )}
+      {showInsights && <Insights onClose={() => setShowInsights(false)} />}
       {showAvatarPicker && (
         <AvatarPicker
           name={currentUser}

@@ -1,7 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { Globe, Music, Video, Type as TypeIcon, Sparkles, UtensilsCrossed, Lightbulb, Send, X, Paperclip, Loader2, Link2, Bookmark, ListChecks, Plus, ClipboardPaste } from 'lucide-react';
-import { Capacitor } from '@capacitor/core';
-import { Clipboard } from '@capacitor/clipboard';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Globe, Music, Video, Type as TypeIcon, Sparkles, UtensilsCrossed, Lightbulb, Send, X, Paperclip, Loader2, Link2, Bookmark, ListChecks, Plus } from 'lucide-react';
 import type { ReminderType, NewNudge } from '../App';
 import { supabase } from '../utils/supabase/client';
 import nudgeLogo from '../../imports/image-3.png';
@@ -147,46 +145,53 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
     if (file) uploadFile(file);
   };
 
-  // Paste button: whatever's on the clipboard — a copied photo becomes an attachment,
-  // a copied link or text goes in the link field
-  const pasteFromClipboard = async () => {
-    setUploadError(null);
-    try {
-      if (Capacitor.isNativePlatform()) {
-        const { type, value } = await Clipboard.read();
-        if (!value) { setUploadError('Nothing to paste — copy a photo or link first.'); return; }
-        if (type?.startsWith('image/')) {
-          const blob = await (await fetch(value)).blob();
-          uploadFile(await toUploadableImage(blob));
-        } else {
-          setUrl(value.trim());
-          setPreviewImage(undefined);
-        }
-        return;
-      }
-      // Website: the browser's own clipboard (asks permission the first time)
-      const items = await navigator.clipboard.read();
-      for (const item of items) {
-        const imageType = item.types.find(t => t.startsWith('image/'));
-        if (imageType) { uploadFile(await toUploadableImage(await item.getType(imageType))); return; }
-      }
-      const text = await navigator.clipboard.readText();
-      if (text) { setUrl(text.trim()); setPreviewImage(undefined); }
-      else setUploadError('Nothing to paste — copy a photo or link first.');
-    } catch (err) {
-      console.warn('Paste failed', err);
-      const empty = /no data|empty/i.test(String((err as Error)?.message ?? err));
-      setUploadError(empty ? 'Nothing to paste — copy a photo or link first.' : "Couldn't read the clipboard — try the paperclip instead.");
-    }
+  // A photo or file pasted anywhere in the form (e.g. ⌘V on a computer) gets attached
+  const pastedFile = (data: DataTransfer | null) =>
+    Array.from(data?.files ?? [])[0] ??
+    Array.from(data?.items ?? []).find(i => i.kind === 'file')?.getAsFile() ?? null;
+  const attachPasted = async (file: File) => {
+    if (file.type.startsWith('image/') && file.size > 4 * 1024 * 1024) { uploadFile(await toUploadableImage(file)); return; }
+    // iPhone names every pasted picture "image.jpeg" — give it a friendlier name
+    const generic = /^image\.\w+$/i.test(file.name);
+    uploadFile(generic ? new File([file], `Pasted photo.${file.name.split('.').pop()}`, { type: file.type }) : file);
+  };
+  const handlePaste = (e: React.ClipboardEvent) => {
+    if (e.defaultPrevented || isTodo) return; // the link box already handled it
+    const file = pastedFile(e.clipboardData);
+    if (!file) return;
+    e.preventDefault();
+    attachPasted(file);
   };
 
-  // Pasting straight into the form (e.g. ⌘V on a computer, or Paste in a text box):
-  // if a photo or file is on the clipboard, attach it
-  const handlePaste = async (e: React.ClipboardEvent) => {
-    const file = Array.from(e.clipboardData?.files ?? [])[0];
-    if (!file || isTodo) return;
-    e.preventDefault();
-    uploadFile(file.type.startsWith('image/') && file.size > 4 * 1024 * 1024 ? await toUploadableImage(file) : file);
+  // The link box: hold it and tap Paste, like in Messages. A copied photo becomes an
+  // attachment; a copied link or text is typed in. (It's a "rich" text box under the
+  // hood, because iPhone only offers Paste for photos in rich text boxes.)
+  const linkBoxRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = linkBoxRef.current;
+    if (el && el.innerText.trim() !== url) el.textContent = url;
+  });
+  const handleLinkBoxInput = () => {
+    const el = linkBoxRef.current;
+    if (!el) return;
+    const text = el.innerText.replace(/\s*\n\s*/g, ' ').trim();
+    if (!text) el.innerHTML = ''; // so the placeholder comes back
+    setUrl(text);
+    setPreviewImage(undefined);
+  };
+  const handleLinkBoxPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+    e.preventDefault(); // never let a picture or formatting land inside the box itself
+    setUploadError(null);
+    const file = pastedFile(e.clipboardData);
+    if (file) { attachPasted(file); return; }
+    const text = e.clipboardData.getData('text/plain').trim();
+    if (text) {
+      document.execCommand('insertText', false, text);
+      return;
+    }
+    // A picture copied from a web page sometimes comes only as a web address
+    const src = /<img[^>]+src="(https?:[^"]+)"/i.exec(e.clipboardData.getData('text/html'))?.[1];
+    if (src) { setUrl(src); setPreviewImage(src); }
   };
 
   const uploadFile = async (file: File) => {
@@ -472,27 +477,27 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
                 </>
               ) : (
                 <>
-                  <input
+                  <div
                     id="quick-url"
-                    type="text"
+                    ref={linkBoxRef}
+                    contentEditable={!uploading}
+                    suppressContentEditableWarning
+                    role="textbox"
+                    aria-label="Link or photo"
+                    data-placeholder="Paste a link or photo"
                     inputMode="url"
                     autoCapitalize="none"
                     autoCorrect="off"
                     spellCheck={false}
-                    value={url}
-                    onChange={(e) => { setUrl(e.target.value); setPreviewImage(undefined); }}
-                    placeholder="Paste a link or photo"
-                    className="flex-1 min-w-0 text-sm bg-transparent focus:outline-none placeholder:text-stone-400"
+                    onInput={handleLinkBoxInput}
+                    onPaste={handleLinkBoxPaste}
+                    onDrop={(e) => {
+                      const file = pastedFile(e.dataTransfer);
+                      if (file) { e.preventDefault(); attachPasted(file); }
+                    }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }}
+                    className="flex-1 min-w-0 text-base leading-6 break-all max-h-24 overflow-y-auto bg-transparent focus:outline-none cursor-text empty:before:content-[attr(data-placeholder)] empty:before:text-stone-400 empty:before:pointer-events-none"
                   />
-                  <button
-                    type="button"
-                    onClick={pasteFromClipboard}
-                    disabled={uploading}
-                    className="text-brand-600 hover:text-brand-700 disabled:opacity-50 shrink-0"
-                    aria-label="Paste a copied photo or link"
-                  >
-                    <ClipboardPaste className="w-[18px] h-[18px]" />
-                  </button>
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
