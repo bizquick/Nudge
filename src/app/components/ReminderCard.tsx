@@ -1,9 +1,10 @@
-import { Globe, Music, Video, Type as TypeIcon, Sparkles, UtensilsCrossed, Lightbulb, ExternalLink, Check, MessageCircle, Send, Archive, Star, SmilePlus, Pencil, Forward, Heart, Globe2, FolderInput, BellOff, ListChecks } from 'lucide-react';
+import { Globe, Music, Video, Type as TypeIcon, Sparkles, UtensilsCrossed, Lightbulb, ExternalLink, Check, MessageCircle, Send, Archive, Star, SmilePlus, Pencil, Forward, Heart, Globe2, FolderInput, BellOff, ListChecks, FileText } from 'lucide-react';
 import { useState } from 'react';
 import type { Reminder, Message } from '../App';
 import type { Folder } from './FolderBar';
 import { Avatar } from './Avatar';
 import { CATEGORY_LABELS } from './SortMenu';
+import { PhotoViewer } from './PhotoViewer';
 
 // lucide-react doesn't have a literal money-bag glyph, so this renders the
 // emoji instead, matching the one used in the send/compose screen.
@@ -105,6 +106,10 @@ export function ReminderCard({
   const todos = reminder.todoItems;
   const todosDone = todos ? todos.filter(t => t.done).length : 0;
   const [showFolderMenu, setShowFolderMenu] = useState(false);
+  // Attached photos show big when the nudge is open; tapping one goes full screen
+  const photos = reminder.attachments.filter(a => a.type.startsWith('image/')).map(a => a.url);
+  const files = reminder.attachments.filter(a => !a.type.startsWith('image/'));
+  const [viewerIndex, setViewerIndex] = useState<number | null>(null);
   // Saved to your own My Nudges — tinted light gold so you can tell it's from you
   const fromMe = reminder.sender === currentUser && reminder.recipients.includes(currentUser);
   // Sent by you to other people (not just saved to My Nudges) — tinted light blue
@@ -408,13 +413,65 @@ export function ReminderCard({
               )}
             </div>
 
-            {reminder.previewImage && (
+            {/* The link's own preview picture (small) — attached photos show big below */}
+            {reminder.previewImage && !photos.includes(reminder.previewImage) && (
               <img
                 src={reminder.previewImage}
                 alt=""
                 className="rounded-lg object-cover mb-3 border border-stone-200"
                 style={{ width: '64px', height: '64px' }}
               />
+            )}
+
+            {photos.length > 0 && (
+              <div className="mb-3 -mx-1" onClick={(e) => e.stopPropagation()}>
+                {photos.length === 1 ? (
+                  <button type="button" onClick={() => setViewerIndex(0)} className="block w-full" aria-label="View photo full screen">
+                    <img src={photos[0]} alt="" className="w-full h-auto max-h-[65vh] object-cover rounded-xl border border-stone-200 bg-stone-100" />
+                  </button>
+                ) : (
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {photos.slice(0, 4).map((src, i) => (
+                      <button
+                        key={src}
+                        type="button"
+                        onClick={() => setViewerIndex(i)}
+                        // With 3 photos, the first runs the full width so the grid has no gap
+                        className={`relative overflow-hidden rounded-xl border border-stone-200 bg-stone-100 ${
+                          i === 0 && photos.length === 3 ? 'col-span-2 aspect-[2/1]' : 'aspect-square'
+                        }`}
+                        aria-label={`View photo ${i + 1} full screen`}
+                      >
+                        <img src={src} alt="" className="w-full h-full object-cover" />
+                        {i === 3 && photos.length > 4 && (
+                          <span className="absolute inset-0 bg-black/45 text-white text-2xl flex items-center justify-center">+{photos.length - 4}</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {files.length > 0 && (
+              <div className="mb-3 space-y-1.5" onClick={(e) => e.stopPropagation()}>
+                {files.map(f => (
+                  <a
+                    key={f.url}
+                    href={f.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-stone-200 bg-white text-sm text-stone-700"
+                  >
+                    <FileText className="w-5 h-5 text-stone-500 shrink-0" />
+                    <span className="truncate flex-1">{f.name}</span>
+                    <ExternalLink className="w-4 h-4 text-stone-400 shrink-0" />
+                  </a>
+                ))}
+              </div>
+            )}
+            {viewerIndex !== null && (
+              <PhotoViewer photos={photos} startIndex={viewerIndex} onClose={() => setViewerIndex(null)} />
             )}
 
             {editingTitle ? (

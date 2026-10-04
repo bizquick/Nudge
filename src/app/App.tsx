@@ -62,6 +62,31 @@ export interface Reminder {
   checkedAt: Date | null;
   /** To-do lists: everyone who has tapped Complete. It counts as checked once all of them have. */
   completedBy: string[];
+  /** Photos and files attached to the nudge */
+  attachments: Attachment[];
+}
+
+/** A photo or file attached to a nudge (several allowed, alongside a link) */
+export interface Attachment {
+  url: string;
+  name: string;
+  /** e.g. "image/jpeg", "video/mp4", "application/pdf" */
+  type: string;
+}
+
+const UPLOAD_PATH = '/nudge-uploads/';
+
+// Older nudges kept a single upload in the link field. Treat that as an attachment
+// so it shows big like new ones, and keep only real web links as the link.
+function splitLegacyUpload(row: any): { url?: string; attachments: Attachment[] } {
+  const list: Attachment[] = Array.isArray(row.attachments) ? row.attachments : [];
+  const url: string | undefined = row.url || undefined;
+  if (url && url.includes(UPLOAD_PATH) && list.length === 0) {
+    const name = decodeURIComponent(url.split('/').pop() || 'File').replace(/^\d+-/, '');
+    const isImage = row.preview_image === url || /\.(jpe?g|png|gif|webp|heic)$/i.test(url);
+    return { url: undefined, attachments: [{ url, name, type: isImage ? 'image/jpeg' : 'application/octet-stream' }] };
+  }
+  return { url, attachments: list };
 }
 
 export interface TodoItem {
@@ -76,12 +101,13 @@ export interface TodoItem {
 export type NewNudge = Omit<Reminder, 'id' | 'createdAt' | 'sender' | 'checkedOut' | 'prioritizedAt' | 'checkedAt' | 'completedBy'> & { prioritized: boolean };
 
 function rowToReminder(row: any, reactions: Reaction[] = [], voters: string[] = []): Reminder {
+  const { url, attachments } = splitLegacyUpload(row);
   return {
     id: row.id,
     type: row.type ?? null,
     title: row.title,
     content: row.content,
-    url: row.url || undefined,
+    url,
     previewImage: row.preview_image || undefined,
     sender: row.sender,
     recipients: (row.recipients && row.recipients.length > 0) ? row.recipients : [row.recipient],
@@ -100,7 +126,8 @@ function rowToReminder(row: any, reactions: Reaction[] = [], voters: string[] = 
     prioritizedAt: row.prioritized_at ? new Date(row.prioritized_at) : null,
     todoItems: Array.isArray(row.todo_items) ? row.todo_items : null,
     checkedAt: row.checked_at ? new Date(row.checked_at) : null,
-    completedBy: Array.isArray(row.completed_by) ? row.completed_by : []
+    completedBy: Array.isArray(row.completed_by) ? row.completed_by : [],
+    attachments
   };
 }
 
@@ -472,7 +499,8 @@ export default function App() {
       archived: false,
       favorited: false,
       ...(reminder.prioritized ? { prioritized_at: new Date().toISOString() } : {}),
-      ...(reminder.todoItems ? { todo_items: reminder.todoItems } : {})
+      ...(reminder.todoItems ? { todo_items: reminder.todoItems } : {}),
+      ...(reminder.attachments.length ? { attachments: reminder.attachments } : {})
     };
     const { data, error } = await supabase.from('reminders').insert(payload).select().single();
     if (error) {
@@ -2059,7 +2087,8 @@ export default function App() {
             title: forwardingReminder.title,
             content: forwardingReminder.content,
             url: forwardingReminder.url || '',
-            previewImage: forwardingReminder.previewImage
+            previewImage: forwardingReminder.previewImage,
+            attachments: forwardingReminder.attachments
           }}
         />
       )}

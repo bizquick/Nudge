@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Globe, Music, Video, Type as TypeIcon, Sparkles, UtensilsCrossed, Lightbulb, Send, X, Paperclip, Loader2, Link2, Bookmark, ListChecks, Plus } from 'lucide-react';
-import type { ReminderType, NewNudge } from '../App';
+import { Globe, Music, Video, Type as TypeIcon, Sparkles, UtensilsCrossed, Lightbulb, Send, X, Paperclip, Loader2, Link2, Bookmark, ListChecks, Plus, FileText } from 'lucide-react';
+import type { ReminderType, NewNudge, Attachment } from '../App';
 import { supabase } from '../utils/supabase/client';
 import nudgeLogo from '../../imports/image-3.png';
 
@@ -28,8 +28,11 @@ interface QuickSendModalProps {
     content: string;
     url: string;
     previewImage?: string;
+    attachments?: Attachment[];
   };
 }
+
+const MAX_ATTACHMENTS = 10;
 
 // People type links the short way ("nytimes.com"). Add the https:// for them
 // so the link opens and the title/preview lookup works.
@@ -81,9 +84,11 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
   const [isSaveToSelf, setIsSaveToSelf] = useState(false);
   const [isPublic, setIsPublic] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  // Photos and files: several allowed, and they sit alongside the link (never replace it)
+  const [attachments, setAttachments] = useState<Attachment[]>(initialValues?.attachments ?? []);
+  const [uploadingCount, setUploadingCount] = useState(0);
+  const uploading = uploadingCount > 0;
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const matches = knownRecipients.filter(u =>
@@ -140,15 +145,20 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
   };
 
   const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    const files = Array.from(e.target.files ?? []);
     e.target.value = ''; // allow selecting the same file again later
-    if (file) uploadFile(file);
+    files.forEach(f => attachPasted(f));
   };
 
   // A photo or file pasted anywhere in the form (e.g. ⌘V on a computer) gets attached
-  const pastedFile = (data: DataTransfer | null) =>
-    Array.from(data?.files ?? [])[0] ??
-    Array.from(data?.items ?? []).find(i => i.kind === 'file')?.getAsFile() ?? null;
+  const pastedFiles = (data: DataTransfer | null): File[] => {
+    const files = Array.from(data?.files ?? []);
+    if (files.length) return files;
+    return Array.from(data?.items ?? [])
+      .filter(i => i.kind === 'file')
+      .map(i => i.getAsFile())
+      .filter((f): f is File => !!f);
+  };
   const attachPasted = async (file: File) => {
     if (file.type.startsWith('image/') && file.size > 4 * 1024 * 1024) { uploadFile(await toUploadableImage(file)); return; }
     // iPhone names every pasted picture "image.jpeg" — give it a friendlier name
@@ -157,10 +167,10 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
   };
   const handlePaste = (e: React.ClipboardEvent) => {
     if (e.defaultPrevented || isTodo) return; // the link box already handled it
-    const file = pastedFile(e.clipboardData);
-    if (!file) return;
+    const files = pastedFiles(e.clipboardData);
+    if (!files.length) return;
     e.preventDefault();
-    attachPasted(file);
+    files.forEach(f => attachPasted(f));
   };
 
   // The link box: hold it and tap Paste, like in Messages. A copied photo becomes an
@@ -182,8 +192,8 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
   const handleLinkBoxPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
     e.preventDefault(); // never let a picture or formatting land inside the box itself
     setUploadError(null);
-    const file = pastedFile(e.clipboardData);
-    if (file) { attachPasted(file); return; }
+    const files = pastedFiles(e.clipboardData);
+    if (files.length) { files.forEach(f => attachPasted(f)); return; }
     const text = e.clipboardData.getData('text/plain').trim();
     if (text) {
       document.execCommand('insertText', false, text);
@@ -191,36 +201,40 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
     }
     // A picture copied from a web page sometimes comes only as a web address
     const src = /<img[^>]+src="(https?:[^"]+)"/i.exec(e.clipboardData.getData('text/html'))?.[1];
-    if (src) { setUrl(src); setPreviewImage(src); }
+    if (src) setAttachments(prev => [...prev, { url: src, name: 'Photo', type: 'image/jpeg' }]);
   };
 
+  const attachmentCount = useRef(attachments.length);
+  attachmentCount.current = attachments.length;
   const uploadFile = async (file: File) => {
     if (file.size > 15 * 1024 * 1024) {
       setUploadError('That file is too big — please keep it under 15MB.');
       return;
     }
+    if (attachmentCount.current >= MAX_ATTACHMENTS) {
+      setUploadError(`Up to ${MAX_ATTACHMENTS} photos or files per nudge.`);
+      return;
+    }
+    attachmentCount.current += 1;
 
-    setUploading(true);
+    setUploadingCount(n => n + 1);
     setUploadError(null);
 
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const path = `${currentUser}/${Date.now()}-${safeName}`;
+    const path = `${currentUser}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${safeName}`;
 
-    const { error } = await supabase.storage.from('nudge-uploads').upload(path, file);
+    const { error } = await supabase.storage.from('nudge-uploads').upload(path, file, { contentType: file.type || undefined });
     if (error) {
       console.error(error);
       setUploadError("Couldn't upload that file — try again.");
-      setUploading(false);
+      attachmentCount.current -= 1;
+      setUploadingCount(n => n - 1);
       return;
     }
 
     const { data } = supabase.storage.from('nudge-uploads').getPublicUrl(path);
-    setUrl(data.publicUrl);
-    setUploadedFileName(file.name);
-    if (file.type.startsWith('image/')) {
-      setPreviewImage(data.publicUrl);
-    }
-    setUploading(false);
+    setAttachments(prev => [...prev, { url: data.publicUrl, name: file.name, type: file.type || 'application/octet-stream' }]);
+    setUploadingCount(n => n - 1);
   };
 
   const addRecipient = (name: string) => {
@@ -260,6 +274,13 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
 
     if (trimmed) return { title: trimmed, previewImage };
     if (content.trim()) return { title: content.trim().slice(0, 60), previewImage };
+    if (attachments.length) {
+      const photos = attachments.filter(a => a.type.startsWith('image/')).length;
+      const title = photos === attachments.length
+        ? (photos === 1 ? 'Photo' : `${photos} photos`)
+        : attachments.length === 1 ? attachments[0].name : `${attachments.length} files`;
+      return { title, previewImage };
+    }
     return { title: 'Untitled nudge', previewImage };
   };
 
@@ -293,7 +314,9 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
       title: resolved.title,
       content: isTodo ? '' : content,
       url: isTodo ? undefined : (normalizeUrl(url) || undefined),
-      previewImage: isTodo ? undefined : resolved.previewImage,
+      // The card's thumbnail: the link's preview, or else the first attached photo
+      previewImage: isTodo ? undefined : (resolved.previewImage || attachments.find(a => a.type.startsWith('image/'))?.url),
+      attachments: isTodo ? [] : attachments,
       todoItems: isTodo ? todoItems.map(text => ({ text, done: false })) : null,
       prioritized,
       recipients,
@@ -314,8 +337,8 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
 
   const people = recipient ? [recipient] : selectedRecipients.filter(r => r !== currentUser);
   const willSaveToSelf = !recipient && isSaveToSelf;
-  const hasContent = isTodo ? !!title.trim() && todoItems.length > 0 : !!(title.trim() || url.trim());
-  const canSend = !submitting && (people.length > 0 || willSaveToSelf) && hasContent;
+  const hasContent = isTodo ? !!title.trim() && todoItems.length > 0 : !!(title.trim() || url.trim() || attachments.length);
+  const canSend = !submitting && !uploading && (people.length > 0 || willSaveToSelf) && hasContent;
   const sendLabel = submitting
     ? 'Sending…'
     : people.length > 1
@@ -326,11 +349,7 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
           ? 'Save to My Nudges'
           : 'Send';
 
-  const clearAttachment = () => {
-    setUrl('');
-    setPreviewImage(undefined);
-    setUploadedFileName(null);
-  };
+  const removeAttachment = (index: number) => setAttachments(prev => prev.filter((_, i) => i !== index));
 
   return (
     <div
@@ -453,11 +472,14 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
 
           </div>
 
-          {/* Link or upload — one field, paperclip built in (to-do lists don't have a link) */}
+          {/* Link box, with the paperclip built in. Photos and files (pasted, dropped, or
+              picked) collect underneath it, so a nudge can have a link AND attachments.
+              To-do lists don't have either. */}
           <div className={isTodo ? 'hidden' : ''}>
             <input
               ref={fileInputRef}
               type="file"
+              multiple
               accept="image/*,video/*,application/pdf"
               onChange={handleFileSelected}
               className="hidden"
@@ -468,48 +490,65 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
               ) : (
                 <Link2 className="w-[18px] h-[18px] text-stone-400 shrink-0" />
               )}
-              {uploadedFileName ? (
-                <>
-                  <span className="flex-1 min-w-0 truncate text-sm text-stone-700">{uploadedFileName}</span>
-                  <button type="button" onClick={clearAttachment} className="text-stone-400 hover:text-stone-600" aria-label="Remove file">
-                    <X className="w-4 h-4" />
-                  </button>
-                </>
-              ) : (
-                <>
-                  <div
-                    id="quick-url"
-                    ref={linkBoxRef}
-                    contentEditable={!uploading}
-                    suppressContentEditableWarning
-                    role="textbox"
-                    aria-label="Link or photo"
-                    data-placeholder="Paste a link or photo"
-                    inputMode="url"
-                    autoCapitalize="none"
-                    autoCorrect="off"
-                    spellCheck={false}
-                    onInput={handleLinkBoxInput}
-                    onPaste={handleLinkBoxPaste}
-                    onDrop={(e) => {
-                      const file = pastedFile(e.dataTransfer);
-                      if (file) { e.preventDefault(); attachPasted(file); }
-                    }}
-                    onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }}
-                    className="flex-1 min-w-0 text-base leading-6 break-all max-h-24 overflow-y-auto bg-transparent focus:outline-none cursor-text empty:before:content-[attr(data-placeholder)] empty:before:text-stone-400 empty:before:pointer-events-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={uploading}
-                    className="text-brand-600 hover:text-brand-700 disabled:opacity-50 shrink-0"
-                    aria-label="Upload a photo or file"
-                  >
-                    {uploading ? <Loader2 className="w-[18px] h-[18px] animate-spin" /> : <Paperclip className="w-[18px] h-[18px]" />}
-                  </button>
-                </>
-              )}
+              <div
+                id="quick-url"
+                ref={linkBoxRef}
+                contentEditable
+                suppressContentEditableWarning
+                role="textbox"
+                aria-label="Link or photo"
+                data-placeholder={attachments.length ? 'Add a link (optional)' : 'Paste a link or photo'}
+                inputMode="url"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                onInput={handleLinkBoxInput}
+                onPaste={handleLinkBoxPaste}
+                onDrop={(e) => {
+                  const files = pastedFiles(e.dataTransfer);
+                  if (files.length) { e.preventDefault(); files.forEach(f => attachPasted(f)); }
+                }}
+                onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }}
+                className="flex-1 min-w-0 text-base leading-6 break-all max-h-24 overflow-y-auto bg-transparent focus:outline-none cursor-text empty:before:content-[attr(data-placeholder)] empty:before:text-stone-400 empty:before:pointer-events-none"
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="text-brand-600 hover:text-brand-700 shrink-0"
+                aria-label="Add photos or files"
+              >
+                <Paperclip className="w-[18px] h-[18px]" />
+              </button>
             </div>
+            {(attachments.length > 0 || uploading) && (
+              <div className="mt-0.5 pt-2.5 pr-2 flex gap-2.5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {attachments.map((a, i) => (
+                  <div key={a.url} className="relative shrink-0">
+                    {a.type.startsWith('image/') ? (
+                      <img src={a.url} alt={a.name} className="w-20 h-20 rounded-xl object-cover border border-stone-200" />
+                    ) : (
+                      <div className="w-20 h-20 rounded-xl border border-stone-200 bg-stone-50 flex flex-col items-center justify-center gap-1 px-1.5">
+                        <FileText className="w-6 h-6 text-stone-500" />
+                        <span className="text-[10px] text-stone-600 truncate w-full text-center">{a.name}</span>
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => removeAttachment(i)}
+                      className="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full bg-stone-800 text-white flex items-center justify-center shadow"
+                      aria-label={`Remove ${a.name}`}
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+                {Array.from({ length: uploadingCount }, (_, i) => (
+                  <div key={'up' + i} className="w-20 h-20 shrink-0 rounded-xl border border-dashed border-stone-300 flex items-center justify-center">
+                    <Loader2 className="w-5 h-5 text-stone-400 animate-spin" />
+                  </div>
+                ))}
+              </div>
+            )}
             {uploadError && <p className="text-xs text-red-500 mt-1">{uploadError}</p>}
           </div>
 
@@ -520,7 +559,7 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder={isTodo ? 'List title' : url.trim() && !uploadedFileName ? "Title (or we'll use the link's)" : 'Title'}
+              placeholder={isTodo ? 'List title' : url.trim() ? "Title (or we'll use the link's)" : 'Title'}
               className="w-full pb-2.5 text-base font-medium bg-transparent border-b border-stone-200 focus:outline-none focus:border-brand-400 placeholder:text-stone-400 placeholder:font-normal"
             />
             {/* A divider line under the title makes it clear where each field starts */}

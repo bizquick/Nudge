@@ -1,36 +1,15 @@
--- Owner-only Insights: app-wide numbers (totals and trends, never anyone's content).
--- TEMPLATE (safe to keep in the repo). Don't run this one: run supabase-insights.local.sql,
--- which is the same thing with the owner's email filled in (that file is kept out of GitHub).
+-- Several photos and files per nudge, alongside a link. Run ONCE in Supabase:
+--   Dashboard -> SQL Editor -> New query -> paste this whole file -> Run.
 --
--- What it does:
---   1. app_admins: the list of accounts allowed to see Insights. Nobody can read or
---      change it from the app (no access rules = no access); only this SQL Editor can.
---   2. is_admin(): lets the app ask "am I the owner?" so it knows whether to show Insights.
---   3. admin_stats(): adds up the numbers. It refuses to run for anyone not in app_admins,
---      so even someone poking at the app's code can't get them.
---
--- "Active" means the person did something that day: sent a nudge, wrote a message,
--- reacted, opened a nudge, or opened the app with notifications on. Nothing new is
--- collected for this; it's counted from what's already stored.
+-- Adds an "attachments" list to each nudge (photos/files, each with its address,
+-- name, and kind). The link stays in its own field, so a nudge can have both.
+-- Only the sender can change a nudge's attachments (the protection rule from
+-- before already covers any new field like this one).
+-- Also updates Insights so "Photos & files" counts nudges with attachments.
 
 begin;
 
-create table if not exists app_admins (
-  user_id uuid primary key references auth.users(id) on delete cascade,
-  added_at timestamptz not null default now()
-);
-alter table app_admins enable row level security;
-
-create or replace function public.is_admin()
-returns boolean
-language sql stable security definer
-set search_path = public
-as $$
-  select exists (select 1 from app_admins where user_id = auth.uid())
-$$;
-
-revoke all on function public.is_admin() from public, anon;
-grant execute on function public.is_admin() to authenticated;
+alter table reminders add column if not exists attachments jsonb;
 
 create or replace function public.admin_stats()
 returns jsonb
@@ -116,19 +95,10 @@ $$;
 revoke all on function public.admin_stats() from public, anon;
 grant execute on function public.admin_stats() to authenticated;
 
--- The owner's account
-insert into app_admins (user_id)
-select id from auth.users where lower(email) = lower('__OWNER_EMAIL__')
-on conflict do nothing;
-
 commit;
 
 notify pgrst, 'reload schema';
 
--- Proof it worked. "owner accounts" should be 1. (The rows after it list the
--- database's access rules on the main tables, for a privacy check-up.)
-select 'owner accounts' as what, count(*)::text as detail from app_admins
-union all
-select 'rule on ' || tablename, policyname || ' (' || cmd || ')'
-from pg_policies
-where schemaname = 'public' and tablename in ('reminders', 'messages', 'reminder_reactions', 'reminder_votes', 'profiles');
+-- Proof it worked: should show 1 row
+select column_name as added from information_schema.columns
+where table_schema = 'public' and table_name = 'reminders' and column_name = 'attachments';
