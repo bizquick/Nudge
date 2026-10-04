@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { Globe, Music, Video, Type as TypeIcon, Sparkles, UtensilsCrossed, Lightbulb, Send, X, Paperclip, Loader2, Link2, Bookmark, ListChecks, Plus } from 'lucide-react';
+import { Globe, Music, Video, Type as TypeIcon, Sparkles, UtensilsCrossed, Lightbulb, Send, X, Paperclip, Loader2, Link2, Bookmark, ListChecks, Plus, ClipboardPaste } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
+import { Clipboard } from '@capacitor/clipboard';
 import type { ReminderType, NewNudge } from '../App';
 import { supabase } from '../utils/supabase/client';
 import nudgeLogo from '../../imports/image-3.png';
@@ -33,6 +35,30 @@ interface QuickSendModalProps {
 
 // People type links the short way ("nytimes.com"). Add the https:// for them
 // so the link opens and the title/preview lookup works.
+// Pasted photos arrive full-size (often as huge PNGs). Shrink to at most 2400px
+// on the long side and save as a JPEG so they upload quickly and fit the 15MB limit.
+async function toUploadableImage(blob: Blob): Promise<File> {
+  const bitmapUrl = URL.createObjectURL(blob);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = reject;
+      el.src = bitmapUrl;
+    });
+    const scale = Math.min(1, 2400 / Math.max(img.naturalWidth, img.naturalHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(img.naturalWidth * scale);
+    canvas.height = Math.round(img.naturalHeight * scale);
+    canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height);
+    const jpeg = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+    if (!jpeg) throw new Error('could not encode');
+    return new File([jpeg], `Pasted photo ${new Date().toLocaleDateString().replace(/\//g, '-')}.jpg`, { type: 'image/jpeg' });
+  } finally {
+    URL.revokeObjectURL(bitmapUrl);
+  }
+}
+
 function normalizeUrl(raw: string): string {
   const u = raw.trim();
   if (!u) return '';
@@ -118,8 +144,52 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
   const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = ''; // allow selecting the same file again later
-    if (!file) return;
+    if (file) uploadFile(file);
+  };
 
+  // Paste button: whatever's on the clipboard — a copied photo becomes an attachment,
+  // a copied link or text goes in the link field
+  const pasteFromClipboard = async () => {
+    setUploadError(null);
+    try {
+      if (Capacitor.isNativePlatform()) {
+        const { type, value } = await Clipboard.read();
+        if (!value) { setUploadError('Nothing to paste — copy a photo or link first.'); return; }
+        if (type?.startsWith('image/')) {
+          const blob = await (await fetch(value)).blob();
+          uploadFile(await toUploadableImage(blob));
+        } else {
+          setUrl(value.trim());
+          setPreviewImage(undefined);
+        }
+        return;
+      }
+      // Website: the browser's own clipboard (asks permission the first time)
+      const items = await navigator.clipboard.read();
+      for (const item of items) {
+        const imageType = item.types.find(t => t.startsWith('image/'));
+        if (imageType) { uploadFile(await toUploadableImage(await item.getType(imageType))); return; }
+      }
+      const text = await navigator.clipboard.readText();
+      if (text) { setUrl(text.trim()); setPreviewImage(undefined); }
+      else setUploadError('Nothing to paste — copy a photo or link first.');
+    } catch (err) {
+      console.warn('Paste failed', err);
+      const empty = /no data|empty/i.test(String((err as Error)?.message ?? err));
+      setUploadError(empty ? 'Nothing to paste — copy a photo or link first.' : "Couldn't read the clipboard — try the paperclip instead.");
+    }
+  };
+
+  // Pasting straight into the form (e.g. ⌘V on a computer, or Paste in a text box):
+  // if a photo or file is on the clipboard, attach it
+  const handlePaste = async (e: React.ClipboardEvent) => {
+    const file = Array.from(e.clipboardData?.files ?? [])[0];
+    if (!file || isTodo) return;
+    e.preventDefault();
+    uploadFile(file.type.startsWith('image/') && file.size > 4 * 1024 * 1024 ? await toUploadableImage(file) : file);
+  };
+
+  const uploadFile = async (file: File) => {
     if (file.size > 15 * 1024 * 1024) {
       setUploadError('That file is too big — please keep it under 15MB.');
       return;
@@ -266,6 +336,7 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
     >
       <form
         onSubmit={handleSubmit}
+        onPaste={handlePaste}
         className="bg-white rounded-2xl shadow-xl max-w-md w-full max-h-full flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
@@ -410,9 +481,18 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
                     spellCheck={false}
                     value={url}
                     onChange={(e) => { setUrl(e.target.value); setPreviewImage(undefined); }}
-                    placeholder="Paste a link"
+                    placeholder="Paste a link or photo"
                     className="flex-1 min-w-0 text-sm bg-transparent focus:outline-none placeholder:text-stone-400"
                   />
+                  <button
+                    type="button"
+                    onClick={pasteFromClipboard}
+                    disabled={uploading}
+                    className="text-brand-600 hover:text-brand-700 disabled:opacity-50 shrink-0"
+                    aria-label="Paste a copied photo or link"
+                  >
+                    <ClipboardPaste className="w-[18px] h-[18px]" />
+                  </button>
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}

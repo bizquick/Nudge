@@ -66,6 +66,9 @@ export interface Reminder {
 export interface TodoItem {
   text: string;
   done: boolean;
+  /** Who ticked it off, and when (only while it's ticked) */
+  by?: string;
+  at?: string;
 }
 
 /** What the New Nudge form hands back: a nudge to create, plus the "prioritize" choice */
@@ -635,15 +638,29 @@ export default function App() {
     }
   };
 
-  // Tick or untick one line of a to-do list nudge (everyone in the nudge sees it)
+  // Tick or untick one line of a to-do list nudge (everyone in the nudge sees it,
+  // along with who ticked it). The server flips just that one line, so two people
+  // ticking different lines at the same moment don't undo each other.
   const handleToggleTodo = async (id: string, index: number) => {
+    if (!currentUser) return;
     const reminder = reminders.find(r => r.id === id);
     if (!reminder?.todoItems) return;
-    const next = reminder.todoItems.map((item, i) => i === index ? { ...item, done: !item.done } : item);
+    const next = reminder.todoItems.map((item, i) => {
+      if (i !== index) return item;
+      if (item.done) return { text: item.text, done: false };
+      return { ...item, done: true, by: currentUser, at: new Date().toISOString() };
+    });
     setReminders(prev => prev.map(r => r.id === id ? { ...r, todoItems: next } : r));
-    const { error } = await supabase.from('reminders').update({ todo_items: next }).eq('id', id);
-    if (error) {
-      console.error(error);
+    const { data, error } = await supabase.rpc('toggle_todo_item', { p_id: id, p_index: index });
+    if (!error && data) {
+      setReminders(prev => prev.map(r => r.id === id ? rowToReminder(data, r.reactions, r.voters) : r));
+      return;
+    }
+    // Older database without that step: save the whole list instead
+    console.warn('toggle_todo_item unavailable, saving whole list', error);
+    const { error: saveError } = await supabase.from('reminders').update({ todo_items: next }).eq('id', id);
+    if (saveError) {
+      console.error(saveError);
       toast('Could not update that to-do');
     }
   };
@@ -1340,7 +1357,7 @@ export default function App() {
             <div className="-mx-4 px-4 flex gap-4 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {newFrom.map(n => (
                 <button key={n.key} onClick={() => selectSender(n.open)} className="shrink-0 w-[60px] flex flex-col items-center">
-                  <div className="rounded-full p-[2.5px] bg-brand-500">
+                  <div className="rounded-full p-[2.5px] bg-notify">
                     <div className="rounded-full p-[2px] bg-[#FBF6EC]">
                       <Avatar name={n.avatarName} size={50} />
                     </div>
@@ -1545,7 +1562,9 @@ export default function App() {
                   }`}
                 >
                   {labels[filter]}
-                  {filter === 'unread' && unreadCount > 0 && <span className="ml-1.5 opacity-80">{unreadCount}</span>}
+                  {filter === 'unread' && unreadCount > 0 && (
+                    <span className="ml-1.5 min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center rounded-full bg-notify text-white text-[11px] align-[1px]">{unreadCount}</span>
+                  )}
                 </button>
               );
             })}
@@ -1723,7 +1742,7 @@ export default function App() {
                         <div className="relative shrink-0">
                           <Avatar name={contact} size={48} />
                           {unreadCount > 0 && (
-                            <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-brand-600 text-white text-[10px] flex items-center justify-center border-2 border-white">
+                            <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-notify text-white text-[10px] flex items-center justify-center border-2 border-white">
                               {unreadCount}
                             </div>
                           )}
@@ -1779,7 +1798,7 @@ export default function App() {
                         </div>
                       )}
                       {group.unread > 0 && (
-                        <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-brand-600 text-white text-[10px] flex items-center justify-center border-2 border-white z-10">
+                        <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-notify text-white text-[10px] flex items-center justify-center border-2 border-white z-10">
                           {group.unread}
                         </div>
                       )}
@@ -1899,7 +1918,7 @@ export default function App() {
               <CheckCheck className="w-4 h-4 shrink-0" />
               <span className="text-sm">Checked{chatCheckedCount > 0 ? ` (${chatCheckedCount})` : ''}</span>
               {chatHasNewInChecked && !showChecked && (
-                <span className="absolute top-1.5 right-2 w-2.5 h-2.5 rounded-full bg-brand-600" aria-label="New messages" />
+                <span className="absolute top-1.5 right-2 w-2.5 h-2.5 rounded-full bg-notify" aria-label="New messages" />
               )}
             </button>
           </div>
@@ -1925,7 +1944,7 @@ export default function App() {
           <tab.icon className="w-5 h-5" />
           <span className="text-[11px]">{tab.label}</span>
           {tab.badge > 0 && (
-            <span className="absolute top-1 right-[calc(50%-22px)] min-w-[16px] h-[16px] rounded-full bg-red-500 text-white text-[9px] flex items-center justify-center px-1">
+            <span className="absolute top-1 right-[calc(50%-22px)] min-w-[16px] h-[16px] rounded-full bg-notify text-white text-[9px] flex items-center justify-center px-1">
               {tab.badge}
             </span>
           )}

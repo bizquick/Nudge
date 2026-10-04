@@ -125,7 +125,7 @@ export function ReminderCard({
           ? `${todos ? 'Completed' : 'Checked'}${reminder.checkedAt ? ' ' + stampTime(reminder.checkedAt) : ''}`
           : null,
       ].filter(Boolean).join(' · ')}
-      {hasUnseenMessages && <span className="ml-1.5 px-1.5 py-px rounded-full bg-brand-600 text-white text-[10px]">New message</span>}
+      {hasUnseenMessages && <span className="ml-1.5 px-1.5 py-px rounded-full bg-notify text-white text-[10px]">New message</span>}
     </p>
   );
   const liked = reminder.voters.includes(currentUser);
@@ -271,7 +271,7 @@ export function ReminderCard({
                 <MessageCircle className="w-6 h-6" />
               )}
               {hasUnreadMessages && (
-                <div className="absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-brand-600 border-2 border-white" aria-label="New message"></div>
+                <div className="absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-notify border-2 border-white" aria-label="New message"></div>
               )}
             </div>
             <div className="flex-1 min-w-0">
@@ -336,14 +336,14 @@ export function ReminderCard({
                   </div>
                 )}
                 {hasUnreadMessages && (
-                  <div className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-brand-600 border-2 border-white"></div>
+                  <div className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-notify border-2 border-white"></div>
                 )}
               </div>
             ) : (
               <div className="relative shrink-0">
                 <Avatar name={viewType === 'received' ? reminder.sender : reminder.recipients[0]} size={32} />
                 {hasUnreadMessages && (
-                  <div className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-brand-600 border-2 border-white"></div>
+                  <div className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-notify border-2 border-white"></div>
                 )}
               </div>
             )}
@@ -463,7 +463,14 @@ export function ReminderCard({
                       }`}>
                         {item.done && <Check className="w-3.5 h-3.5" />}
                       </span>
-                      <span className={item.done ? 'text-stone-400 line-through' : 'text-stone-800'}>{item.text}</span>
+                      <span className={`flex-1 min-w-0 ${item.done ? 'text-stone-400 line-through' : 'text-stone-800'}`}>{item.text}</span>
+                      {/* Who ticked it off */}
+                      {item.done && item.by && (
+                        <span className="shrink-0 flex items-center gap-1 text-[11px] text-stone-500" title={item.at ? new Date(item.at).toLocaleString() : undefined}>
+                          <Avatar name={item.by} size={16} />
+                          {item.by === currentUser ? 'You' : item.by}
+                        </span>
+                      )}
                     </button>
                   </li>
                 ))}

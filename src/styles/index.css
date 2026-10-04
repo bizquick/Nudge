@@ -28,6 +28,11 @@
   --color-gold-600: #A9792A;
   --color-gold-700: #845E22;
 
+  /* Notification blue: every "something new" marker (badges, dots, new-nudge rings).
+     A calm ocean blue that sits well beside the forest green and gold. */
+  --color-notify: #2F6FB7;
+  --color-notify-light: #E3EDF8;
+
   --color-cream: #FBF6EC;
   --color-ink: #2B2620;
 }
