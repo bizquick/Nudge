@@ -114,7 +114,7 @@ export function FolderBar({ folders, counts, totalCount, active, onSelect, onCre
                 <button
                   type="button"
                   onClick={() => {
-                    if (window.confirm(`Delete the folder "${folder.name}"? The flags in it stay in your Favorites.`)) onDelete(folder.id);
+                    if (window.confirm(`Delete the folder "${folder.name}"? The nudges in it stay in your Favorites.`)) onDelete(folder.id);
                   }}
                   className="p-1.5 rounded-full text-stone-500 hover:bg-stone-100"
                   aria-label={`Delete ${folder.name}`}

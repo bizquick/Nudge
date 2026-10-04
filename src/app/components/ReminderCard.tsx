@@ -94,7 +94,7 @@ export function ReminderCard({
   const todos = reminder.todoItems;
   const todosDone = todos ? todos.filter(t => t.done).length : 0;
   const [showFolderMenu, setShowFolderMenu] = useState(false);
-  // Saved to your own My Flags — tinted light gold so you can tell it's from you
+  // Saved to your own My Nudges — tinted light gold so you can tell it's from you
   const fromMe = reminder.sender === currentUser && reminder.recipients.includes(currentUser);
   // Sent by you to other people (not just saved to My Nudges) — tinted light blue
   const sentByMe = reminder.sender === currentUser && !fromMe;
@@ -638,7 +638,7 @@ export function ReminderCard({
                   onForward(reminder);
                 }}
                 className="px-2 py-1 rounded-full border border-stone-300 bg-white text-stone-600 hover:bg-stone-100 transition-all hover:scale-110"
-                title="Forward this flag"
+                title="Forward this nudge"
               >
                 <Forward className="w-4 h-4" />
               </button>

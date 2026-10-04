@@ -178,7 +178,7 @@ export function AuthScreen({ onSignedIn }: AuthScreenProps) {
       return;
     }
     switchMode('reset');
-    setNotice(`If ${email.trim()} has a Flag account, we just emailed it a code.`);
+    setNotice(`If ${email.trim()} has an Addly account, we just emailed it a code.`);
   };
 
   // Forgot your Nudge name: email it to them — no password change involved.
@@ -202,7 +202,7 @@ export function AuthScreen({ onSignedIn }: AuthScreenProps) {
       return;
     }
     switchMode('login');
-    setNotice(`If ${email.trim()} has a Flag account, we just emailed your username to it.`);
+    setNotice(`If ${email.trim()} has an Addly account, we just emailed your username to it.`);
   };
 
   // Forgot password, step 2: the code proves it's them, then save the new password
@@ -237,7 +237,7 @@ export function AuthScreen({ onSignedIn }: AuthScreenProps) {
   const inputClass = 'w-full px-4 py-2.5 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-300';
   const labelClass = 'block text-xs text-stone-500 mb-1';
 
-  const logo = <ImageWithFallback src={nudgeLogo} alt="Flag" className="h-16 w-auto object-contain mx-auto mt-6 mb-3" />;
+  const logo = <ImageWithFallback src={nudgeLogo} alt="Addly" className="h-16 w-auto object-contain mx-auto mt-6 mb-3" />;
 
   // Fits one iPhone screen: starts near the top (below the notch) instead of floating in the middle
   const shell = (children: React.ReactNode) => (
@@ -274,7 +274,7 @@ export function AuthScreen({ onSignedIn }: AuthScreenProps) {
     <>
       {logo}
       <p className="text-stone-600 italic text-sm mb-4">
-        Flag it. Because "I'll check it out later" is a lie.
+        Because “I’ll check it out later” is a lie.
       </p>
 
       {isRecovery ? (

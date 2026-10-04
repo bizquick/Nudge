@@ -716,7 +716,7 @@ export default function App() {
       : await supabase.from('favorite_folder_items').delete().match({ owner_name: currentUser, reminder_id: reminderId });
     if (error) {
       console.error(error);
-      toast('Could not move that flag');
+      toast('Could not move that nudge');
     }
   };
 
@@ -990,13 +990,13 @@ export default function App() {
     const name = pendingInvite;
     setPendingInvite(null);
     if (name.toLowerCase() === currentUser.toLowerCase()) {
-      toast("That's your own Flag link — send it to a friend!");
+      toast("That's your own Addly link — send it to a friend!");
       return;
     }
     // Confirm the person exists (exact name), then open a new nudge addressed to them
     supabase.rpc('find_profile', { p_name: name }).then(({ data, error }) => {
       if (error || typeof data !== 'string') {
-        toast(`Couldn't find anyone named ${name} on Flag`);
+        toast(`Couldn't find anyone named ${name} on Addly`);
         return;
       }
       setSelectedSender(null);
@@ -1010,10 +1010,10 @@ export default function App() {
     const url = `https://flagem.app/add?u=${encodeURIComponent(currentUser)}`;
     try {
       await Share.share({
-        title: 'Send me a flag',
-        text: `Send me a flag! My username on Flag is ${currentUser}.`,
+        title: 'Send me a nudge',
+        text: `Send me a nudge! My username on Addly is ${currentUser}.`,
         url,
-        dialogTitle: 'Share your Flag link',
+        dialogTitle: 'Share your Addly link',
       });
     } catch (err) {
       // Closing the share sheet without picking anything also lands here — only fall back if sharing isn't available
@@ -1078,12 +1078,12 @@ export default function App() {
               onReorder={handleReorderUnread}
               emptyMessage={emptyMessage ?? (
                 allMessagesFilter === 'unread'
-                  ? "You're all caught up. New flags from friends will show up here."
+                  ? "You're all caught up. New nudges from friends will show up here."
                   : allMessagesFilter === 'archived'
-                    ? 'Nothing archived. Flags you archive will wait here.'
+                    ? 'Nothing archived. Nudges you archive will wait here.'
                     : activeFolder
                       ? 'This folder is empty. Go to All, then hold a favorite and drag it onto this folder.'
-                      : 'No favorites yet. Open a flag and tap the star to save it here.'
+                      : 'No favorites yet. Open a nudge and tap the star to save it here.'
               )}
               folderOptions={allMessagesFilter === 'favorited' && foldersReady
                 ? { folders, folderOf: (id) => folderOfReminder[id] ?? null, onMove: handleMoveToFolder }
@@ -1101,7 +1101,7 @@ export default function App() {
         <div className="text-center pt-16 pb-8 px-6">
           <div className="text-5xl mb-3" aria-hidden="true">🎉</div>
           <p className="text-lg text-stone-800">You're all caught up</p>
-          <p className="text-sm text-stone-500 mt-1">New flags from friends will show up here.</p>
+          <p className="text-sm text-stone-500 mt-1">New nudges from friends will show up here.</p>
           <button
             onClick={() => setMobileTab('popular')}
             className="mt-5 px-5 py-2.5 rounded-full bg-brand-600 text-white text-sm active:bg-brand-700"
@@ -1162,7 +1162,7 @@ export default function App() {
   if (!authChecked) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-white">
-        <ImageWithFallback src={nudgeLogo} alt="Flag" className="h-20 w-auto object-contain" />
+        <ImageWithFallback src={nudgeLogo} alt="Addly" className="h-20 w-auto object-contain" />
         <p className="text-stone-400 text-sm">Loading…</p>
       </div>
     );
@@ -1175,8 +1175,8 @@ export default function App() {
   if (dataLoading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-white">
-        <ImageWithFallback src={nudgeLogo} alt="Flag" className="h-20 w-auto object-contain" />
-        <p className="text-stone-400 text-sm">Loading your flags…</p>
+        <ImageWithFallback src={nudgeLogo} alt="Addly" className="h-20 w-auto object-contain" />
+        <p className="text-stone-400 text-sm">Loading your nudges…</p>
       </div>
     );
   }
@@ -1203,7 +1203,7 @@ export default function App() {
         {showInstallPrompt && (
           <div className="mb-3 p-3 sm:p-4 bg-brand-600 text-white rounded-xl shadow-lg flex items-center justify-between">
             <div>
-              <p className="font-medium text-sm sm:text-base">Install Flag</p>
+              <p className="font-medium text-sm sm:text-base">Install Addly</p>
               <p className="text-xs sm:text-sm text-brand-100">Add to your home screen for quick access</p>
             </div>
             <div className="flex gap-2">
@@ -1257,7 +1257,7 @@ export default function App() {
                   <h1 className="text-lg truncate">
                     {selectedGroupKey
                       ? (selectedGroupMeta?.groupName || selectedGroupMeta?.participants.join(', ') || 'Group')
-                      : selectedSender === 'My Reminders' ? 'My Flags' : selectedSender}
+                      : selectedSender === 'My Reminders' ? 'My Nudges' : selectedSender}
                   </h1>
                 </button>
                 {selectedGroupKey && (
@@ -1315,14 +1315,14 @@ export default function App() {
                   {unreadCount === 0
                     ? "You're all caught up"
                     : [
-                        `${unreadCount} new flag${unreadCount === 1 ? '' : 's'}`,
+                        `${unreadCount} new nudge${unreadCount === 1 ? '' : 's'}`,
                         unreadPriorityCount ? `${unreadPriorityCount} priority` : null,
                       ].filter(Boolean).join(' · ')}
                 </p>
               </div>
             ) : (
               <h1 className="tab-title pt-1 text-[30px] leading-tight text-stone-800">
-                {mobileTab === 'people' ? 'Flags' : mobileTab === 'popular' ? 'Popular' : 'You'}
+                {mobileTab === 'people' ? 'Nudges' : mobileTab === 'popular' ? 'Popular' : 'You'}
               </h1>
             )
           )}
@@ -1337,7 +1337,7 @@ export default function App() {
                 className="min-w-0 flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 text-white active:bg-brand-700 transition-colors"
               >
                 <Send className="w-4 h-4 shrink-0" />
-                <span className="text-sm truncate">Send {selectedGroupMeta ? (selectedGroupMeta.groupName || 'the group') : selectedSender} a flag</span>
+                <span className="text-sm truncate">Send {selectedGroupMeta ? (selectedGroupMeta.groupName || 'the group') : selectedSender} a nudge</span>
               </button>
             )}
             <button
@@ -1445,7 +1445,7 @@ export default function App() {
                       : 'bg-white border border-stone-300 text-stone-700 hover:bg-stone-50'
                   }`}
                 >
-                  Most Popular Flags
+                  Most Popular Nudges
                 </button>
                 <button
                   onClick={() => { setPopularSubTab('explore'); setExploreSeed(s => s + 1); }}
@@ -1488,8 +1488,8 @@ export default function App() {
                 onUpvote={handleToggleVote}
                 emptyMessage={
                   popularSubTab === 'top'
-                    ? "No public flags yet. Mark a flag \"public\" when sending one to see it show up here."
-                    : "You're all caught up. Flags you've liked move to Most Popular. Check back later for new ones, or mark one of your own \"Public\" to share it here."
+                    ? "No public nudges yet. Mark a nudge \"public\" when sending one to see it show up here."
+                    : "You're all caught up. Nudges you've liked move to Most Popular. Check back later for new ones, or mark one of your own \"Public\" to share it here."
                 }
               />
             </div>
@@ -1503,8 +1503,8 @@ export default function App() {
                 >
                   <Avatar name={currentUser} size={48} />
                   <div className="text-left flex-1 min-w-0">
-                    <p className="text-base">My Flags</p>
-                    <p className="text-sm text-stone-500">{myOwnReminders.length} flags</p>
+                    <p className="text-base">My Nudges</p>
+                    <p className="text-sm text-stone-500">{myOwnReminders.length} nudges</p>
                   </div>
                 </button>
               )}
@@ -1512,7 +1512,7 @@ export default function App() {
               {/* Individual Contacts */}
               {uniqueContacts.length === 0 && myOwnReminders.length === 0 && (
                 <p className="text-center text-stone-500 py-12 text-sm">
-                  No one here yet. Send someone a flag to see them show up.
+                  No one here yet. Send someone a nudge to see them show up.
                 </p>
               )}
               {uniqueContacts.map(contact => {
@@ -1549,7 +1549,7 @@ export default function App() {
                           </p>
                           <p className="text-sm text-stone-500 truncate">
                             {chatNotes['contact:' + contact] && <span className="italic">{chatNotes['contact:' + contact]} · </span>}
-                            {count} flags
+                            {count} nudges
                           </p>
                         </div>
                       </button>
@@ -1605,7 +1605,7 @@ export default function App() {
                       </p>
                       <p className="text-sm text-stone-500 truncate">
                         {chatNotes['group:' + group.key] && <span className="italic">{chatNotes['group:' + group.key]} · </span>}
-                        {group.count} flags &middot; {group.participants.length + 1} people
+                        {group.count} nudges &middot; {group.participants.length + 1} people
                       </p>
                     </div>
                   </button>
@@ -1635,7 +1635,7 @@ export default function App() {
                       </button>
                       <button
                         onClick={() => {
-                          if (confirm(`Delete your chat with ${chatLabel(name)}? It disappears from your Flags tab for good. The flags themselves aren't deleted for the other people in them.`)) {
+                          if (confirm(`Delete your chat with ${chatLabel(name)}? It disappears from your Nudges tab for good. The nudges themselves aren't deleted for the other people in them.`)) {
                             handleDeleteContact(name);
                           }
                         }}
@@ -1666,14 +1666,14 @@ export default function App() {
               <div className="bg-white rounded-xl border border-stone-200 p-5">
                 <p className="text-base">Invite friends</p>
                 <p className="text-sm text-stone-500 mt-1">
-                  Send your Flag link in Messages. Friends with Flag tap it to open a new flag already addressed to you.
+                  Send your Addly link in Messages. Friends with Addly tap it to open a new nudge already addressed to you.
                 </p>
                 <button
                   onClick={handleShareLink}
                   className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-brand-600 text-white active:bg-brand-700"
                 >
                   <Share2 className="w-4 h-4" />
-                  Share my Flag link
+                  Share my Addly link
                 </button>
               </div>
               <button
@@ -1695,7 +1695,7 @@ export default function App() {
       >
       {([
         { id: 'inbox' as const, label: 'Home', icon: InboxIcon, badge: unreadCount },
-        { id: 'people' as const, label: 'Flags', icon: Users, badge: 0 },
+        { id: 'people' as const, label: 'Nudges', icon: Users, badge: 0 },
       ]).map(tab => (
         <button
           key={tab.id}
@@ -1717,7 +1717,7 @@ export default function App() {
       <button
         onClick={() => setShowNewReminderModal(true)}
         className="flex-1 flex flex-col items-center justify-center"
-        title="Send a flag"
+        title="Send a nudge"
       >
         <span className="w-11 h-11 rounded-full bg-brand-600 flex items-center justify-center -mt-4 shadow-lg shadow-brand-600/30 active:bg-brand-700 transition-colors">
           <img src={nIconTonal} alt="" className="w-6 h-6 object-contain" />

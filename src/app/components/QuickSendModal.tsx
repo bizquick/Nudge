@@ -185,7 +185,7 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
 
     if (trimmed) return { title: trimmed, previewImage };
     if (content.trim()) return { title: content.trim().slice(0, 60), previewImage };
-    return { title: 'Untitled flag', previewImage };
+    return { title: 'Untitled nudge', previewImage };
   };
 
   const fallbackTitleFromUrl = (u: string) => {
@@ -248,7 +248,7 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
       : people.length === 1
         ? `Send to ${people[0]}`
         : willSaveToSelf
-          ? 'Save to My Flags'
+          ? 'Save to My Nudges'
           : 'Send';
 
   const clearAttachment = () => {
@@ -272,10 +272,10 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
         {/* Header */}
         <div className="px-4 py-3.5 border-b border-stone-200 flex items-center justify-between shrink-0">
           {initialValues ? (
-            <h3 className="text-lg">Forward flag</h3>
+            <h3 className="text-lg">Forward nudge</h3>
           ) : (
             <h3 className="h-8 flex items-center">
-              <img src={nudgeLogo} alt="New flag" className="h-7 w-auto object-contain" />
+              <img src={nudgeLogo} alt="New nudge" className="h-7 w-auto object-contain" />
             </h3>
           )}
           <button
@@ -369,7 +369,7 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
                 )}
                 {matches.length === 0 && !exactMatch && (
                   <p className="px-3 py-2 text-xs text-stone-500">
-                    {lookingUp ? 'Looking…' : "No one by that name. To add someone new, type their exact username, or ask them for their Flag link."}
+                    {lookingUp ? 'Looking…' : "No one by that name. To add someone new, type their exact username, or ask them for their Addly link."}
                   </p>
                 )}
               </div>
@@ -522,7 +522,7 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
                 }`}
               >
                 <Bookmark className="w-3.5 h-3.5" />
-                Save to My Flags
+                Save to My Nudges
               </button>
             )}
             <button

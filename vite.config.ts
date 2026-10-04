@@ -31,8 +31,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon-32.png', 'apple-touch-icon.png'],
       manifest: {
-        name: 'Flag',
-        short_name: 'Flag',
+        name: 'Addly',
+        short_name: 'Addly',
         description: "Send links, music, and videos to people you know — they check them out on their own time.",
         start_url: './',
         scope: './',
