@@ -6,10 +6,11 @@ import { FolderBar, type Folder } from './components/FolderBar';
 import { SwipeRow } from './components/SwipeRow';
 import { Avatar, AvatarContext, ProfileContext, ProfileLink } from './components/Avatar';
 import { ProfileSheet } from './components/ProfileSheet';
+import { GroupInfoSheet } from './components/GroupInfoSheet';
 import { AvatarPicker } from './components/AvatarPicker';
 import { AuthScreen } from './components/AuthScreen';
 import { Insights } from './components/Insights';
-import { Send, Archive, LogOut, Share2, Inbox as InboxIcon, Users, User, ChevronLeft, ChevronDown, TrendingUp, Pencil, BellOff, Bell, Trash2, StarOff, CheckCheck, BarChart3, ChevronRight, RefreshCw } from 'lucide-react';
+import { Send, Archive, LogOut, Share2, Inbox as InboxIcon, Users, User, ChevronLeft, ChevronDown, TrendingUp, Pencil, BellOff, Bell, Trash2, StarOff, CheckCheck, BarChart3, ChevronRight, RefreshCw, Info } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { ImageWithFallback } from './components/figma/ImageWithFallback';
 import nudgeLogo from '../imports/image-3.png';
@@ -348,6 +349,11 @@ export default function App() {
     });
     return map;
   }, [nudgeStates]);
+  const checkedByNames = useMemo(() => {
+    const out: Record<string, string[]> = {};
+    checksByNudge.forEach((people, id) => { out[id] = Array.from(people.keys()); });
+    return out;
+  }, [checksByNudge]);
   const connectionOf = useMemo(() => new Map((connections ?? []).map(c => [c.other_name, c])), [connections]);
   const blockedNames = useMemo(() => new Set((connections ?? []).filter(c => c.status === 'blocked').map(c => c.other_name)), [connections]);
 
@@ -399,6 +405,7 @@ export default function App() {
   const [showInsights, setShowInsights] = useState(false);
   // Whose profile card is open (tap anyone's picture or name)
   const [profileName, setProfileName] = useState<string | null>(null);
+  const [showGroupInfo, setShowGroupInfo] = useState(false);
   // Someone's invite link (addlyapp.com/add?u=Name, or the older flagem.app / nudgem.app ones) was opened — start a nudge to them once signed in
   const [pendingInvite, setPendingInvite] = useState<string | null>(null);
   const [editingNote, setEditingNote] = useState(false);
@@ -1689,6 +1696,7 @@ export default function App() {
               onTodoEdit={handleTodoEdit}
               pendingSent={pendingSent}
               onWithdraw={handleDeleteNudge}
+              checkedBy={nudgeStates ? checkedByNames : undefined}
               onTogglePriority={handleTogglePriority}
               // Favorites are personal: no check mark there, just when it was sent and checked
               hideCheck={allMessagesFilter === 'favorited'}
@@ -1902,11 +1910,21 @@ export default function App() {
                 )}
                 {selectedGroupKey && (
                   <button
+                    onClick={() => setShowGroupInfo(true)}
+                    className="p-1.5 -ml-1 text-brand-600 hover:text-brand-700 shrink-0"
+                    title="Who's in this group"
+                    aria-label="Group info: who's in this group"
+                  >
+                    <Info className="w-[18px] h-[18px]" />
+                  </button>
+                )}
+                {selectedGroupKey && (
+                  <button
                     onClick={() => {
                       setGroupNameDraft(selectedGroupMeta?.groupName || '');
                       setEditingGroupName(true);
                     }}
-                    className="p-1.5 -ml-1 text-stone-400 hover:text-stone-600 shrink-0"
+                    className="p-1.5 -ml-1.5 text-stone-400 hover:text-stone-600 shrink-0"
                     title="Rename group"
                   >
                     <Pencil className="w-3.5 h-3.5" />
@@ -2043,6 +2061,7 @@ export default function App() {
               pendingSent={pendingSent}
               onWithdraw={handleDeleteNudge}
               openMessagesId={openMessagesId}
+              checkedBy={nudgeStates ? checkedByNames : undefined}
               onTogglePriority={handleTogglePriority}
             />
             {/* "Alison renamed the group" — shown for a day after a rename */}
@@ -2214,7 +2233,7 @@ export default function App() {
                   <Avatar name={currentUser} size={48} />
                   <div className="text-left flex-1 min-w-0">
                     <p className="text-lg">My Nudges</p>
-                    <p className="text-[15px] text-stone-500">{myOwnReminders.length} nudges</p>
+                    <p className="text-[15px] text-stone-500">{myOwnReminders.length} nudge{myOwnReminders.length === 1 ? '' : 's'}</p>
                   </div>
                 </button>
               )}
@@ -2259,7 +2278,7 @@ export default function App() {
                           </p>
                           <p className="text-[15px] text-stone-500 truncate">
                             {chatNotes['contact:' + contact] && <span className="italic">{chatNotes['contact:' + contact]} · </span>}
-                            {count} nudges
+                            {count} nudge{count === 1 ? '' : 's'}
                           </p>
                         </div>
                       </button>
@@ -2315,7 +2334,7 @@ export default function App() {
                       </p>
                       <p className="text-[15px] text-stone-500 truncate">
                         {chatNotes['group:' + group.key] && <span className="italic">{chatNotes['group:' + group.key]} · </span>}
-                        {group.count} nudges &middot; {group.participants.length + 1} people
+                        {group.count} nudge{group.count === 1 ? '' : 's'} &middot; {group.participants.length + 1} people
                       </p>
                     </div>
                   </button>
@@ -2528,6 +2547,16 @@ export default function App() {
         />
       )}
       {showInsights && <Insights onClose={() => setShowInsights(false)} />}
+      {showGroupInfo && selectedGroupKey && (
+        <GroupInfoSheet
+          title={selectedGroupMeta?.groupName || selectedGroupMeta?.participants.join(', ') || 'Group'}
+          members={selectedGroupMeta?.participants ?? []}
+          currentUser={currentUser}
+          onOpenProfile={setProfileName}
+          onRename={() => { setGroupNameDraft(selectedGroupMeta?.groupName || ''); setEditingGroupName(true); }}
+          onClose={() => setShowGroupInfo(false)}
+        />
+      )}
       {profileName && (
         <ProfileSheet
           name={profileName}

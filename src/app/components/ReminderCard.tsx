@@ -55,6 +55,8 @@ interface ReminderCardProps {
   onWithdraw?: (reminderId: string) => void;
   /** Open the messages straight away (came from a message notification) */
   openMessages?: boolean;
+  /** Everyone who has checked this nudge (each person's check is their own) */
+  checkedBy?: string[];
 }
 
 // "Today 6:45 PM", "Yesterday 9:02 AM", "Sep 3, 6:45 PM", "Sep 3, 2025, 6:45 PM"
@@ -115,7 +117,8 @@ export function ReminderCard({
   anyoneCanCheck,
   pendingRecipients,
   onWithdraw,
-  openMessages
+  openMessages,
+  checkedBy
 }: ReminderCardProps) {
   const todos = reminder.todoItems;
   const todosDone = todos ? todos.filter(t => t.done).length : 0;
@@ -540,6 +543,32 @@ export function ReminderCard({
                 )}
               </div>
             )}
+            {/* Group nudges: who still hasn't checked it (to-do lists show Complete buttons instead) */}
+            {isGroup && isParticipant && !todos && checkedBy && (() => {
+              const shouldCheck = reminder.recipients.filter(p => p !== reminder.sender);
+              const notYet = shouldCheck.filter(p => !checkedBy.includes(p));
+              const label = (p: string) => (p === currentUser ? 'You' : p);
+              return (
+                <p className="mb-2 text-[12px] leading-4 text-stone-500" onClick={(e) => e.stopPropagation()}>
+                  {notYet.length === 0 ? (
+                    <span className="text-green-700">✓ Everyone has checked it</span>
+                  ) : (
+                    <>
+                      <span className="text-stone-600">Not checked yet: </span>
+                      {notYet.map((p, i) => (
+                        <span key={p}>
+                          {i > 0 && ', '}
+                          {p === currentUser ? 'You' : <ProfileLink name={p} className="text-stone-700 underline decoration-stone-300">{p}</ProfileLink>}
+                        </span>
+                      ))}
+                      {shouldCheck.length - notYet.length > 0 && (
+                        <span> · Checked: {shouldCheck.filter(p => checkedBy.includes(p)).map(label).join(', ')}</span>
+                      )}
+                    </>
+                  )}
+                </p>
+              );
+            })()}
             {todos ? (
               <TodoEditor
                 items={todos}

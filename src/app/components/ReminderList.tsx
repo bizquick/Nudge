@@ -53,6 +53,8 @@ interface ReminderListProps {
   onWithdraw?: (reminderId: string) => void;
   /** Open this nudge's messages right away (tapped a message notification) */
   openMessagesId?: string | null;
+  /** Who has checked each nudge (for "Not checked yet" in groups) */
+  checkedBy?: Record<string, string[]>;
 }
 
 export function ReminderList({
@@ -92,7 +94,8 @@ export function ReminderList({
   anyoneCanCheck,
   pendingSent,
   onWithdraw,
-  openMessagesId
+  openMessagesId,
+  checkedBy
 }: ReminderListProps) {
   // Drag to reorder. Pick a card up by pressing and holding anywhere on it
   // (or instantly from the grab strip at its top); it then follows your
@@ -438,6 +441,7 @@ export function ReminderList({
             pendingRecipients={pendingSent?.[reminder.id]}
             onWithdraw={onWithdraw}
             openMessages={openMessagesId === reminder.id}
+            checkedBy={checkedBy ? (checkedBy[reminder.id] ?? []) : undefined}
             onTogglePriority={onTogglePriority}
             rich={richCards}
             muted={muted}
