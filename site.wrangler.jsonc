@@ -1,6 +1,6 @@
-// Cloudflare settings for the flagem.app website (the pages in site/).
+// Cloudflare settings for the addlyapp.com website (the pages in site/).
 // Publish updates with:  npx wrangler deploy --config site.wrangler.jsonc
-// The old nudgem.app address forwards here (see site-worker.js).
+// The old flagem.app and nudgem.app addresses forward here (see site-worker.js).
 {
   "name": "nudgem-site",
   "main": "./site-worker.js",
@@ -14,6 +14,8 @@
   },
   "workers_dev": false,
   "routes": [
+    { "pattern": "addlyapp.com", "custom_domain": true },
+    { "pattern": "www.addlyapp.com", "custom_domain": true },
     { "pattern": "flagem.app", "custom_domain": true },
     { "pattern": "www.flagem.app", "custom_domain": true },
     { "pattern": "nudgem.app", "custom_domain": true },

@@ -6,6 +6,7 @@
 	<string>development</string>
 	<key>com.apple.developer.associated-domains</key>
 	<array>
+		<string>applinks:addlyapp.com</string>
 		<string>applinks:flagem.app</string>
 		<string>applinks:nudgem.app</string>
 	</array>

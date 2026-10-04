@@ -235,7 +235,7 @@ export default function App() {
   const [avatars, setAvatars] = useState<Record<string, string>>({});
   const [chatNotes, setChatNotes] = useState<Record<string, string>>({});
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
-  // Someone's invite link (flagem.app/add?u=Name, or the older nudgem.app one) was opened — start a nudge to them once signed in
+  // Someone's invite link (addlyapp.com/add?u=Name, or the older flagem.app / nudgem.app ones) was opened — start a nudge to them once signed in
   const [pendingInvite, setPendingInvite] = useState<string | null>(null);
   const [editingNote, setEditingNote] = useState(false);
   const [noteDraft, setNoteDraft] = useState('');
@@ -1007,7 +1007,7 @@ export default function App() {
   // Share your link through Messages (or any app): opens Nudge for friends who have it
   const handleShareLink = async () => {
     if (!currentUser) return;
-    const url = `https://flagem.app/add?u=${encodeURIComponent(currentUser)}`;
+    const url = `https://addlyapp.com/add?u=${encodeURIComponent(currentUser)}`;
     try {
       await Share.share({
         title: 'Send me a nudge',

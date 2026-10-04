@@ -4,7 +4,7 @@
       {
         "appIDs": ["M686VAWANX.com.brandonchirco.nudge"],
         "components": [
-          { "/": "/add", "?": { "u": "*" }, "comment": "Invite links: open a new flag to that person" }
+          { "/": "/add", "?": { "u": "*" }, "comment": "Invite links: open a new nudge to that person" }
         ]
       }
     ]
