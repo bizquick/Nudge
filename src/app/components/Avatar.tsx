@@ -1,8 +1,28 @@
-import { createContext, useContext } from 'react';
+import { createContext, useContext, type ReactNode } from 'react';
 
 // Everyone's chosen picture, by display name. A value is either a photo address
 // or a premade pick written as "emoji:🐸". No entry = colored initials.
 export const AvatarContext = createContext<Record<string, string>>({});
+
+// Opens someone's profile card. Avatars marked `profile` become tappable and call this.
+export const ProfileContext = createContext<((name: string) => void) | null>(null);
+
+/** Wrap a person's name (or anything) so tapping it opens their profile */
+export function ProfileLink({ name, className = '', children }: { name: string; className?: string; children: ReactNode }) {
+  const openProfile = useContext(ProfileContext);
+  if (!openProfile) return <span className={className}>{children}</span>;
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      onClick={(e) => { e.stopPropagation(); openProfile(name); }}
+      onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); openProfile(name); } }}
+      className={`cursor-pointer ${className}`}
+    >
+      {children}
+    </span>
+  );
+}
 
 // Premade options for people who don't want to upload a photo
 export const PRESET_AVATARS = [
@@ -31,9 +51,16 @@ interface AvatarProps {
   /** Optional override, e.g. a preview while picking a new picture */
   value?: string | null;
   className?: string;
+  /** Tapping it opens this person's profile */
+  profile?: boolean;
 }
 
-export function Avatar({ name, size, value, className = '' }: AvatarProps) {
+export function Avatar({ profile, ...props }: AvatarProps) {
+  const picture = <AvatarPicture {...props} />;
+  return profile ? <ProfileLink name={props.name} className="inline-flex shrink-0 rounded-full">{picture}</ProfileLink> : picture;
+}
+
+function AvatarPicture({ name, size, value, className = '' }: Omit<AvatarProps, 'profile'>) {
   const avatars = useContext(AvatarContext);
   const pick = value !== undefined ? value : avatars[name];
   const style = { width: size, height: size };

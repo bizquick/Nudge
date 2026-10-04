@@ -2,7 +2,7 @@ import { Globe, Music, Video, Type as TypeIcon, Sparkles, UtensilsCrossed, Light
 import { useState } from 'react';
 import type { Reminder, Message } from '../App';
 import type { Folder } from './FolderBar';
-import { Avatar } from './Avatar';
+import { Avatar, ProfileLink } from './Avatar';
 import { CATEGORY_LABELS } from './SortMenu';
 import { PhotoViewer } from './PhotoViewer';
 
@@ -332,7 +332,7 @@ export function ReminderCard({
                   <div className="relative w-8 h-8">
                     {otherParticipants.slice(0, 2).map((p, i) => (
                       <div key={p} className="absolute rounded-full border-2 border-white" style={{ left: i * 8, top: i === 1 ? 6 : 0, zIndex: 2 - i }}>
-                        <Avatar name={p} size={20} />
+                        <Avatar name={p} size={20} profile />
                       </div>
                     ))}
                     <div className="absolute w-5 h-5 rounded-full bg-stone-300 flex items-center justify-center text-white text-[8px] border-2 border-white" style={{ left: 16, top: 6, zIndex: 0 }}>
@@ -346,7 +346,7 @@ export function ReminderCard({
               </div>
             ) : (
               <div className="relative shrink-0">
-                <Avatar name={viewType === 'received' ? reminder.sender : reminder.recipients[0]} size={32} />
+                <Avatar name={viewType === 'received' ? reminder.sender : reminder.recipients[0]} size={32} profile />
                 {hasUnreadMessages && (
                   <div className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-notify border-2 border-white"></div>
                 )}
@@ -396,7 +396,7 @@ export function ReminderCard({
                   <div className="relative w-9 h-9 sm:w-10 sm:h-10">
                     {otherParticipants.slice(0, 2).map((p, i) => (
                       <div key={p} className="absolute rounded-full border-2 border-white" style={{ left: i * 10, top: i === 1 ? 8 : 0, zIndex: 2 - i }}>
-                        <Avatar name={p} size={24} />
+                        <Avatar name={p} size={24} profile />
                       </div>
                     ))}
                     {otherParticipants.length > 2 && (
@@ -408,7 +408,7 @@ export function ReminderCard({
                 </div>
               ) : (
                 <div className={flipped ? 'mr-auto' : 'ml-auto'}>
-                  <Avatar name={viewType === 'received' ? reminder.sender : reminder.recipients[0]} size={38} />
+                  <Avatar name={viewType === 'received' ? reminder.sender : reminder.recipients[0]} size={38} profile />
                 </div>
               )}
             </div>
@@ -524,8 +524,8 @@ export function ReminderCard({
                       {/* Who ticked it off */}
                       {item.done && item.by && (
                         <span className="shrink-0 flex items-center gap-1 text-[11px] text-stone-500" title={item.at ? new Date(item.at).toLocaleString() : undefined}>
-                          <Avatar name={item.by} size={16} />
-                          {item.by === currentUser ? 'You' : item.by}
+                          <Avatar name={item.by} size={16} profile />
+                          {item.by === currentUser ? 'You' : <ProfileLink name={item.by}>{item.by}</ProfileLink>}
                         </span>
                       )}
                     </button>
@@ -620,21 +620,36 @@ export function ReminderCard({
               {messages.length > 0 && (
                 <div className="space-y-2 mb-4">
                   {/* iMessage style: your messages blue on the right, everyone else's white on the left */}
-                  {messages.map(message => {
+                  {/* In group and Public nudges, each message shows who wrote it (name above, picture
+                      beside), like a group chat in Messages. 1-on-1 chats don't need it. */}
+                  {messages.map((message, i) => {
                     const mine = message.sender === currentUser;
+                    const showWho = !mine && (isGroup || reminder.isPublic);
+                    // Only label the first of several messages in a row from the same person
+                    const sameAsBefore = i > 0 && messages[i - 1].sender === message.sender;
                     return (
                       <div key={message.id} className={`flex flex-col ${mine ? 'items-end' : 'items-start'}`}>
-                        <div
-                          className={`max-w-[78%] px-3.5 py-2 text-sm rounded-2xl ${
-                            mine
-                              ? 'bg-blue-500 text-white rounded-br-md'
-                              : 'bg-white text-stone-900 border border-stone-200 rounded-bl-md'
-                          }`}
-                        >
-                          {message.text}
+                        {showWho && !sameAsBefore && (
+                          <ProfileLink name={message.sender} className="ml-9 mb-0.5 text-[12px] text-stone-500">{message.sender}</ProfileLink>
+                        )}
+                        <div className={`flex items-end gap-1.5 max-w-[85%] ${mine ? 'flex-row-reverse' : ''}`}>
+                          {showWho && (
+                            <span className={`w-[26px] shrink-0 ${sameAsBefore ? 'invisible' : ''}`}>
+                              <Avatar name={message.sender} size={26} profile />
+                            </span>
+                          )}
+                          <div
+                            className={`min-w-0 px-3.5 py-2 text-sm rounded-2xl break-words ${
+                              mine
+                                ? 'bg-blue-500 text-white rounded-br-md'
+                                : 'bg-white text-stone-900 border border-stone-200 rounded-bl-md'
+                            }`}
+                          >
+                            {message.text}
+                          </div>
                         </div>
-                        <span className="mt-0.5 px-1 text-[11px] text-stone-400">
-                          {mine ? formatTime(message.createdAt) : `${message.sender} · ${formatTime(message.createdAt)}`}
+                        <span className={`mt-0.5 px-1 text-[11px] text-stone-400 ${showWho ? 'ml-8' : ''}`}>
+                          {formatTime(message.createdAt)}
                         </span>
                       </div>
                     );

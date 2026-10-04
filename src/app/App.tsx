@@ -4,7 +4,8 @@ import { QuickSendModal } from './components/QuickSendModal';
 import { SortMenu, sortReminders, loadSortSetting, saveSortSetting, type SortSetting } from './components/SortMenu';
 import { FolderBar, type Folder } from './components/FolderBar';
 import { SwipeRow } from './components/SwipeRow';
-import { Avatar, AvatarContext } from './components/Avatar';
+import { Avatar, AvatarContext, ProfileContext, ProfileLink } from './components/Avatar';
+import { ProfileSheet } from './components/ProfileSheet';
 import { AvatarPicker } from './components/AvatarPicker';
 import { AuthScreen } from './components/AuthScreen';
 import { Insights } from './components/Insights';
@@ -303,6 +304,8 @@ export default function App() {
   // The app's owner sees an Insights page (the database decides who that is)
   const [isAdmin, setIsAdmin] = useState(false);
   const [showInsights, setShowInsights] = useState(false);
+  // Whose profile card is open (tap anyone's picture or name)
+  const [profileName, setProfileName] = useState<string | null>(null);
   // Someone's invite link (addlyapp.com/add?u=Name, or the older flagem.app / nudgem.app ones) was opened — start a nudge to them once signed in
   const [pendingInvite, setPendingInvite] = useState<string | null>(null);
   const [editingNote, setEditingNote] = useState(false);
@@ -1506,6 +1509,7 @@ export default function App() {
 
   return (
     <AvatarContext.Provider value={avatars}>
+    <ProfileContext.Provider value={setProfileName}>
     <div
       className="flex flex-col overflow-hidden"
       style={{ height: '100%', width: '100%', background: '#FBF6EC', paddingTop: 'env(safe-area-inset-top)' }}
@@ -1569,20 +1573,29 @@ export default function App() {
               </form>
             ) : (
               <>
-                {/* The arrow AND the name are one big back button — easier to hit */}
+                {/* Back arrow (a big target); in a 1-on-1 chat, the picture and name open their profile */}
                 <button
                   onClick={() => selectSender(null)}
-                  className="-ml-2 pl-1 pr-2 py-1.5 rounded-lg hover:bg-stone-100 active:bg-stone-200 transition-colors flex items-center gap-1.5 min-w-0 max-w-[60%] shrink-0"
+                  className="-ml-2 p-1.5 rounded-lg hover:bg-stone-100 active:bg-stone-200 transition-colors shrink-0"
                   title="Back"
+                  aria-label="Back"
                 >
-                  <ChevronLeft className="w-6 h-6 text-stone-700 shrink-0" />
-                  {!selectedGroupKey && selectedSender !== 'My Reminders' && <Avatar name={selectedSender} size={28} />}
-                  <h1 className="text-lg truncate">
-                    {selectedGroupKey
-                      ? (selectedGroupMeta?.groupName || selectedGroupMeta?.participants.join(', ') || 'Group')
-                      : selectedSender === 'My Reminders' ? 'My Nudges' : selectedSender}
-                  </h1>
+                  <ChevronLeft className="w-6 h-6 text-stone-700" />
                 </button>
+                {!selectedGroupKey && selectedSender !== 'My Reminders' ? (
+                  <ProfileLink name={selectedSender} className="-ml-1 py-1 pr-1 flex items-center gap-1.5 min-w-0 max-w-[55%] shrink-0 rounded-lg active:bg-stone-200">
+                    <Avatar name={selectedSender} size={28} />
+                    <h1 className="text-lg truncate">{selectedSender}</h1>
+                  </ProfileLink>
+                ) : (
+                  <button onClick={() => selectSender(null)} className="-ml-1 py-1 min-w-0 max-w-[60%] shrink-0 text-left">
+                    <h1 className="text-lg truncate">
+                      {selectedGroupKey
+                        ? (selectedGroupMeta?.groupName || selectedGroupMeta?.participants.join(', ') || 'Group')
+                        : 'My Nudges'}
+                    </h1>
+                  </button>
+                )}
                 {selectedGroupKey && (
                   <button
                     onClick={() => {
@@ -1852,7 +1865,7 @@ export default function App() {
                         className="flex-1 min-w-0 px-3 py-3 flex items-center gap-3 active:bg-stone-100 transition-colors rounded-xl text-left"
                       >
                         <div className="relative shrink-0">
-                          <Avatar name={contact} size={48} />
+                          <Avatar name={contact} size={48} profile />
                           {unreadCount > 0 && (
                             <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-notify text-white text-[10px] flex items-center justify-center border-2 border-white">
                               {unreadCount}
@@ -2120,6 +2133,14 @@ export default function App() {
         />
       )}
       {showInsights && <Insights onClose={() => setShowInsights(false)} />}
+      {profileName && (
+        <ProfileSheet
+          name={profileName}
+          isYou={profileName === currentUser}
+          onSendNudge={() => { setQuickSendTo(profileName); setProfileName(null); }}
+          onClose={() => setProfileName(null)}
+        />
+      )}
       {showAvatarPicker && (
         <AvatarPicker
           name={currentUser}
@@ -2174,6 +2195,7 @@ export default function App() {
         mobileOffset={{ bottom: 'calc(env(safe-area-inset-bottom) + 76px)' }}
       />
     </div>
+    </ProfileContext.Provider>
     </AvatarContext.Provider>
   );
 }
