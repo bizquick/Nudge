@@ -2148,15 +2148,14 @@ export default function App() {
           ) : (
             // Large left-aligned screen title, iOS style (the logo lives on the sign-in and loading screens)
             mobileTab === 'inbox' ? (
-              // Home is your queue: what's left, what you've done today, and a ring that fills up
-              <div className="pt-1 w-full flex items-center gap-3">
-                <div className="flex-1 min-w-0">
-                  <h1 className="tab-title text-[30px] leading-tight text-stone-800">Up next</h1>
-                  <p className="text-sm text-stone-500 mt-0.5">
-                    {queueLeft === 0 ? 'All caught up' : `${queueLeft} left`}
-                    {doneToday > 0 ? ` · ${doneToday} done today` : ''}
-                  </p>
-                </div>
+              // Home: today's date, then how many nudges are waiting for you
+              <div className="pt-1 w-full">
+                <p className="text-[13px] font-medium text-stone-500">
+                  {new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
+                </p>
+                <h1 className="tab-title text-[30px] leading-tight text-stone-900">
+                  {queueLeft === 0 ? 'All caught up' : `${queueLeft} to check`}
+                </h1>
               </div>
             ) : mobileTab === 'people' && savedView ? (
               <div className="pt-1 flex items-center gap-1 -ml-2">

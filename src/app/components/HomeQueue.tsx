@@ -90,7 +90,6 @@ export function HomeQueue(props: HomeQueueProps) {
 
   return (
     <div className="pb-2">
-      {props.peopleRow}
       {requestsBanner}
       {upNext && (
         <UpNextCard
@@ -103,10 +102,12 @@ export function HomeQueue(props: HomeQueueProps) {
         />
       )}
 
+      {/* Who else has something waiting (tap a friend to see only theirs) */}
+      {props.peopleRow && <div className="mt-5">{props.peopleRow}</div>}
+
       {rest.length > 0 && (
         <>
-          <div className="mt-6 mb-1 flex items-center justify-between">
-            <p className="text-xs text-stone-500">{upNext ? 'Then' : 'Waiting for you'}</p>
+          <div className={`${props.peopleRow ? 'mt-1' : 'mt-5'} mb-1 flex items-center justify-end`}>
             {props.sortControl}
           </div>
           <div className="border-t border-stone-200/80">

@@ -62,11 +62,10 @@ input, textarea, select {
   pointer-events: auto;
 }
 
-/* Tab titles at the top of each screen: Fraunces with its "soft" rounding
-   turned up — elegant but relaxed. Bundled with the app, so it works offline. */
+/* Screen titles: the iPhone's own bold title font (like Messages, Reminders,
+   and Mail) — crisp and familiar rather than decorative. */
 .tab-title {
-  font-family: 'Fraunces Variable', Georgia, serif;
-  font-variation-settings: 'SOFT' 100, 'opsz' 28;
-  font-weight: 450;
-  letter-spacing: 0.005em;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
