@@ -137,6 +137,10 @@ function UpNextCard({ reminder: r, currentUser, onDone, onLater, messageCount, o
   const explore = mode === 'explore';
   const type = categoryOf(r);
   const [leaving, setLeaving] = useState<'done' | 'later' | null>(null);
+  // Swipe the big card left to send it to the back (Explore: to move on to the next one)
+  const [dragX, setDragX] = useState(0);
+  const drag = useRef<{ x: number; y: number; swiping: boolean } | null>(null);
+  const swallowClick = useRef(false);
   const [viewer, setViewer] = useState<number | null>(null);
   const photos = r.attachments.filter(a => a.type.startsWith('image/')).map(a => a.url);
   const picture = photos[0] ?? r.previewImage;
@@ -163,10 +167,35 @@ function UpNextCard({ reminder: r, currentUser, onDone, onLater, messageCount, o
 
   return (
     <div
-      className={`rounded-3xl border border-stone-200 bg-white overflow-hidden shadow-sm transition-all duration-200 animate-in fade-in slide-in-from-bottom-3 ${
-        leaving === 'done' ? 'translate-x-[110%] opacity-0' : leaving === 'later' ? '-translate-x-[110%] opacity-0' : ''
-      }`}
+      className={`rounded-3xl border border-stone-200 bg-white overflow-hidden shadow-sm duration-200 animate-in fade-in slide-in-from-bottom-3 ${
+        drag.current?.swiping ? '' : 'transition-all'
+      } ${leaving === 'done' ? 'translate-x-[110%] opacity-0' : leaving === 'later' ? '-translate-x-[110%] opacity-0' : ''}`}
+      style={{ touchAction: 'pan-y', ...(!leaving && dragX ? { transform: `translateX(${dragX}px) rotate(${dragX / 40}deg)`, opacity: Math.max(0.4, 1 + dragX / 500) } : {}) }}
       data-nudge-card
+      onPointerDown={(e) => { if (e.button === 0) drag.current = { x: e.clientX, y: e.clientY, swiping: false }; }}
+      onPointerMove={(e) => {
+        const d = drag.current;
+        if (!d) return;
+        const dx = e.clientX - d.x, dy = e.clientY - d.y;
+        if (!d.swiping) {
+          if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { drag.current = null; return; } // scrolling
+          if (dx > -12 || Math.abs(dx) < Math.abs(dy) * 1.3) return; // only a clear leftward swipe
+          d.swiping = true;
+          try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* fine */ }
+        }
+        setDragX(Math.min(0, dx));
+      }}
+      onPointerUp={() => {
+        const d = drag.current;
+        drag.current = null;
+        if (!d?.swiping) return;
+        swallowClick.current = true;
+        setTimeout(() => { swallowClick.current = false; }, 300);
+        if (dragX < -110) finish('later');
+        setDragX(0);
+      }}
+      onPointerCancel={() => { drag.current = null; setDragX(0); }}
+      onClickCapture={(e) => { if (swallowClick.current) { e.stopPropagation(); e.preventDefault(); } }}
     >
       {/* The picture (or a big tile). Tapping it opens what was sent — the link itself,
           shown like the app it's from (YouTube thumbnail, Spotify album art…). */}

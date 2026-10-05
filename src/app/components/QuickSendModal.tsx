@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Globe, Music, Video, Type as TypeIcon, Sparkles, UtensilsCrossed, Lightbulb, Send, X, Paperclip, Loader2, Link2, Bookmark, ListChecks, Plus, FileText } from 'lucide-react';
+import { Globe, Music, Video, Type as TypeIcon, Sparkles, UtensilsCrossed, Lightbulb, Send, X, Paperclip, Loader2, Link2, Bookmark, ListChecks, Plus, FileText, Users } from 'lucide-react';
 import type { ReminderType, NewNudge, Attachment } from '../App';
 import { supabase } from '../utils/supabase/client';
 import { guessCategory } from '../utils/guessCategory';
+import { Avatar } from './Avatar';
 import nudgeLogo from '../../imports/image-3.png';
 
 // lucide-react doesn't have a literal money-bag glyph, so this renders the
@@ -18,6 +19,8 @@ function MoneyBagIcon({ className }: { className?: string }) {
 interface QuickSendModalProps {
   recipient: string;
   knownRecipients: string[];
+  /** Your existing group chats, so a nudge can go to a whole group at once */
+  knownGroups?: { key: string; label: string; members: string[]; picture?: string }[];
   currentUser: string;
   onClose: () => void;
   onSubmit: (reminder: NewNudge) => void;
@@ -67,7 +70,7 @@ function normalizeUrl(raw: string): string {
   return /^[a-z][a-z0-9+.-]*:\/\//i.test(u) ? u : `https://${u}`;
 }
 
-export function QuickSendModal({ recipient, knownRecipients, currentUser, onClose, onSubmit, initialValues, initialRecipients }: QuickSendModalProps) {
+export function QuickSendModal({ recipient, knownRecipients, knownGroups = [], currentUser, onClose, onSubmit, initialValues, initialRecipients }: QuickSendModalProps) {
   const [type, setType] = useState<ReminderType | null>(initialValues?.type ?? null);
   const [title, setTitle] = useState(initialValues?.title ?? '');
   const [content, setContent] = useState(initialValues?.content ?? '');
@@ -95,6 +98,17 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
   const matches = knownRecipients.filter(u =>
     u.toLowerCase().includes(recipientQuery.toLowerCase()) && !selectedRecipients.includes(u)
   );
+  // Groups whose name (or a member's name) matches what you typed
+  const groupMatches = recipientQuery.trim()
+    ? knownGroups.filter(g => g.label.toLowerCase().includes(recipientQuery.trim().toLowerCase())
+        || g.members.some(m => m.toLowerCase().includes(recipientQuery.trim().toLowerCase())))
+    : [];
+  // Picking a group adds everyone in it, sent as one group nudge (it lands in that group chat)
+  const addGroup = (members: string[]) => {
+    setSelectedRecipients(prev => Array.from(new Set([...prev, ...members])));
+    setSendMode('group');
+    setRecipientQuery('');
+  };
 
   // Someone you haven't nudged before: if what you typed is their exact Nudge name,
   // the server confirms it. (Nobody can browse or search the full list of users.)
@@ -453,8 +467,40 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
               )}
             </div>
 
+            {/* Your groups, one tap to address the whole group */}
+            {!recipient && !recipientQuery && selectedRecipients.filter(r => r !== currentUser).length === 0 && knownGroups.length > 0 && (
+              <div className="mt-2 -mx-4 px-4 flex gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {knownGroups.slice(0, 12).map(g => (
+                  <button
+                    key={g.key}
+                    type="button"
+                    onClick={() => addGroup(g.members)}
+                    className="shrink-0 flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full border border-stone-300 text-xs text-stone-700 active:bg-stone-100"
+                    title={g.members.join(', ')}
+                  >
+                    {g.picture ? <Avatar name={g.label} size={20} value={g.picture} /> : (
+                      <span className="w-5 h-5 rounded-full bg-brand-50 text-brand-600 flex items-center justify-center"><Users className="w-3 h-3" /></span>
+                    )}
+                    <span className="max-w-[140px] truncate">{g.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
             {recipientQuery && (
-              <div className="mt-2 border border-stone-200 rounded-lg overflow-hidden max-h-40 overflow-y-auto">
+              <div className="mt-2 border border-stone-200 rounded-lg overflow-hidden max-h-48 overflow-y-auto">
+                {groupMatches.map(g => (
+                  <button
+                    key={'g:' + g.key}
+                    type="button"
+                    onClick={() => addGroup(g.members)}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-stone-50 border-b border-stone-100 flex items-center gap-2"
+                  >
+                    <Users className="w-4 h-4 text-brand-600 shrink-0" />
+                    <span className="min-w-0 truncate">{g.label}</span>
+                    <span className="ml-auto text-xs text-stone-400 shrink-0">group · {g.members.length + 1}</span>
+                  </button>
+                ))}
                 {matches.map(u => (
                   <button
                     key={u}
@@ -474,7 +520,7 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
                     {exactMatch} <span className="text-xs text-stone-400">· new contact</span>
                   </button>
                 )}
-                {matches.length === 0 && !exactMatch && (
+                {matches.length === 0 && groupMatches.length === 0 && !exactMatch && (
                   <p className="px-3 py-2 text-xs text-stone-500">
                     {lookingUp ? 'Looking…' : "No one by that name. To add someone new, type their exact username, or ask them for their Addly link."}
                   </p>

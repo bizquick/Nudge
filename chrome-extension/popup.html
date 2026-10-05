@@ -22,8 +22,19 @@
     <p class="fine">Your password goes only to Addly. This add-on keeps a private send-key, never your password.</p>
   </section>
 
-  <!-- Signed in: the page, a note, who to send it to -->
+  <!-- Signed in: your inbox, or send the page you're on -->
   <section id="send" hidden>
+    <div class="tabs" role="tablist">
+      <button type="button" role="tab" id="tab-inbox" aria-selected="false">Inbox <span class="count" id="inbox-count" hidden></span></button>
+      <button type="button" role="tab" id="tab-send" aria-selected="true">Send this page</button>
+    </div>
+
+    <div id="inbox-pane" hidden>
+      <div class="inbox" id="inbox"></div>
+      <p class="fine footer">For messages and reactions, open Addly on your phone.</p>
+    </div>
+
+    <div id="send-pane">
     <div class="preview">
       <div class="thumb" id="thumb"><img id="thumb-img" alt="" hidden></div>
       <div class="meta">
@@ -39,6 +50,7 @@
 
     <button class="primary" id="send-button" disabled>Send</button>
     <p class="error" id="send-error" hidden></p>
+    </div>
     <p class="fine footer">Signed in as <span id="me"></span> · <a href="#" id="signout">Sign out</a> · <a href="#" id="refresh">Refresh friends</a></p>
   </section>
 

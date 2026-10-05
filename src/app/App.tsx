@@ -413,6 +413,9 @@ export default function App() {
   const [profileName, setProfileName] = useState<string | null>(null);
   const [showGroupInfo, setShowGroupInfo] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
+  // Group pictures (anyone in a group can set one; everyone in it sees it): group key -> picture
+  const [groupAvatars, setGroupAvatars] = useState<Record<string, string>>({});
+  const [groupPictureFor, setGroupPictureFor] = useState<string | null>(null);
   // Favorites and Checked now live under the Nudges tab (Home is just your queue)
   const [savedView, setSavedView] = useState<'favorited' | 'archived' | null>(null);
   // Explore: which nudge is the big card up top (picking one never reorders anything)
@@ -564,6 +567,10 @@ export default function App() {
     ((pendRows || []) as { reminder_id: string; recipient: string }[]).forEach(p => { (pend[p.reminder_id] ??= []).push(p.recipient); });
     setPendingSent(pend);
 
+    const { data: groupPicRows, error: groupPicErr } = await supabase.from('group_avatars').select('group_key, avatar');
+    if (groupPicErr) console.warn('Group pictures unavailable:', groupPicErr);
+    else setGroupAvatars(Object.fromEntries((groupPicRows || []).filter(g => g.avatar).map(g => [g.group_key, g.avatar])));
+
     const { data: adminFlag } = await supabase.rpc('is_admin');
     setIsAdmin(adminFlag === true);
 
@@ -597,6 +604,7 @@ export default function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'reminder_votes' }, scheduleRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'nudge_user_state' }, scheduleRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'connections' }, scheduleRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'group_avatars' }, scheduleRefresh)
       .subscribe();
 
     return () => {
@@ -1034,6 +1042,24 @@ export default function App() {
     }
   };
 
+  // A group's picture, set by anyone in it (everyone in the group sees the change)
+  const handleSaveGroupAvatar = async (key: string, value: string | null) => {
+    if (!currentUser) return;
+    setGroupAvatars(prev => {
+      const next = { ...prev };
+      if (value) next[key] = value; else delete next[key];
+      return next;
+    });
+    const { error } = await supabase.from('group_avatars').upsert(
+      { group_key: key, avatar: value, updated_by: currentUser, updated_at: new Date().toISOString() },
+      { onConflict: 'group_key' }
+    );
+    if (error) {
+      console.error(error);
+      toast("Couldn't save the group picture");
+    }
+  };
+
   // Your picture: a photo address, an "emoji:…" pick, or null for initials
   const handleSaveAvatar = async (value: string | null) => {
     if (!currentUser || !currentUserId) return;
@@ -1408,6 +1434,10 @@ export default function App() {
     return Array.from(map.values()).sort((a, b) => (a.groupName || a.participants.join()).localeCompare(b.groupName || b.participants.join()));
   })();
   const groupLabel = (g: { groupName: string | null; participants: string[] }) => g.groupName || g.participants.join(', ');
+  // Your group chats, offered in the New Nudge "To" box so you can send to a whole group
+  const composeGroups = allGroups
+    .filter(g => !g.participants.some(p => blockedNames.has(p)))
+    .map(g => ({ key: g.key, label: groupLabel(g), members: g.participants, picture: groupAvatars[g.key] }));
   // Archived group chats are stored like archived contacts, under 'group:<key>'
   const groups = allGroups.filter(g => !hiddenContactNames.has('group:' + g.key));
   const chatLabel = (name: string) => {
@@ -1796,7 +1826,7 @@ export default function App() {
 
   // The friends (and groups) with something in your queue, most first
   const queuePeople = (() => {
-    const map = new Map<string, { key: string; label: string; avatar: string; count: number }>();
+    const map = new Map<string, { key: string; label: string; avatar: string; pic?: string; count: number }>();
     [...fullQueue, ...reopenedReminders].forEach(r => {
       const key = queueKeyOf(r);
       const existing = map.get(key);
@@ -1804,7 +1834,7 @@ export default function App() {
       const g = groupKeyFor(r);
       const group = g ? allGroups.find(x => x.key === g) : null;
       const label = group ? groupLabel(group) : r.sender === currentUser ? 'You' : r.sender;
-      map.set(key, { key, label, avatar: group ? label : r.sender, count: 1 });
+      map.set(key, { key, label, avatar: group ? label : r.sender, pic: g ? groupAvatars[g] : undefined, count: 1 });
     });
     return Array.from(map.values()).sort((a, b) => b.count - a.count);
   })();
@@ -1821,7 +1851,7 @@ export default function App() {
             aria-label={`${p.label}: ${p.count} waiting${active ? ' (showing only these)' : ''}`}
           >
             <span className={`relative rounded-full p-[2px] ${active ? 'bg-brand-600' : 'bg-transparent'}`}>
-              <span className="block rounded-full p-[1.5px] bg-[#FBF6EC]"><Avatar name={p.avatar} size={46} /></span>
+              <span className="block rounded-full p-[1.5px] bg-[#FBF6EC]"><Avatar name={p.avatar} size={46} value={p.pic} /></span>
               <span className="absolute -top-0.5 -right-1 min-w-[20px] h-5 px-1 rounded-full bg-notify text-white text-[11px] flex items-center justify-center border-2 border-[#FBF6EC]">
                 {p.count}
               </span>
@@ -2104,6 +2134,15 @@ export default function App() {
                     <h1 className="text-lg truncate">{selectedSender}</h1>
                   </ProfileLink>
                 ) : (
+                  <>
+                  {/* The group's picture: tap it to see who's in the group (and change it) */}
+                  {selectedGroupKey && (
+                    <button onClick={() => setShowGroupInfo(true)} className="-ml-1 shrink-0" aria-label="Group info">
+                      {groupAvatars[selectedGroupKey]
+                        ? <Avatar name={selectedGroupMeta?.groupName || 'Group'} size={28} value={groupAvatars[selectedGroupKey]} />
+                        : <span className="w-7 h-7 rounded-full bg-brand-50 text-brand-600 flex items-center justify-center"><Users className="w-4 h-4" /></span>}
+                    </button>
+                  )}
                   <button onClick={() => selectSender(null)} className="-ml-1 py-1 min-w-0 max-w-[60%] shrink-0 text-left">
                     <h1 className="text-lg truncate">
                       {selectedGroupKey
@@ -2111,6 +2150,7 @@ export default function App() {
                         : 'My Nudges'}
                     </h1>
                   </button>
+                  </>
                 )}
                 {selectedGroupKey && (
                   <button
@@ -2168,14 +2208,14 @@ export default function App() {
           ) : (
             // Large left-aligned screen title, iOS style (the logo lives on the sign-in and loading screens)
             mobileTab === 'inbox' ? (
-              // Home: today's date, then how many nudges are waiting for you
+              // Home: just today's date
               <div className="pt-1 w-full">
-                <p className="text-[13px] font-medium text-stone-500">
-                  {new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
-                </p>
                 <h1 className="tab-title text-[30px] leading-tight text-stone-900">
-                  {queueLeft === 0 ? 'All caught up' : `${queueLeft} to check`}
+                  {new Date().toLocaleDateString(undefined, { weekday: 'long' })}
                 </h1>
+                <p className="text-[15px] font-medium text-stone-500">
+                  {new Date().toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}
+                </p>
               </div>
             ) : mobileTab === 'people' && savedView ? (
               <div className="pt-1 flex items-center gap-1 -ml-2">
@@ -2530,13 +2570,15 @@ export default function App() {
                 const initials = group.participants.slice(0, 3).map(p => p[0]?.toUpperCase() ?? '?');
                 return (
                   <SwipeRow key={group.key} actions={chatSwipeActions('group:' + group.key, 'group:' + group.key, displayName)}>
+                  <div className="flex items-center gap-1 rounded-xl" style={{ background: '#FBF6EC' }}>
                   <button
                     onClick={() => selectSender('group:' + group.key)}
-                    className="w-full px-3 py-3 flex items-center gap-3 active:bg-stone-100 transition-colors rounded-xl text-left"
-                    style={{ background: '#FBF6EC' }}
+                    className="flex-1 min-w-0 px-3 py-3 flex items-center gap-3 active:bg-stone-100 transition-colors rounded-xl text-left"
                   >
                     <div className="relative shrink-0 w-11 h-11">
-                      {initials.map((letter, i) => (
+                      {groupAvatars[group.key] ? (
+                        <Avatar name={displayName} size={44} value={groupAvatars[group.key]} />
+                      ) : initials.map((letter, i) => (
                         <div
                           key={i}
                           className="absolute w-7 h-7 rounded-full bg-gradient-to-br from-brand-400 to-brand-700 flex items-center justify-center text-white text-[10px] border-2 border-white"
@@ -2545,7 +2587,7 @@ export default function App() {
                           {letter}
                         </div>
                       ))}
-                      {group.participants.length > 3 && (
+                      {!groupAvatars[group.key] && group.participants.length > 3 && (
                         <div className="absolute w-7 h-7 rounded-full bg-stone-300 flex items-center justify-center text-white text-[10px] border-2 border-white" style={{ left: 30, top: 10, zIndex: 0 }}>
                           +{group.participants.length - 2}
                         </div>
@@ -2567,6 +2609,15 @@ export default function App() {
                       </p>
                     </div>
                   </button>
+                  {/* Send the whole group a nudge */}
+                  <button
+                    onClick={() => setQuickSendGroup(group.participants)}
+                    className="p-2.5 mr-1 rounded-lg text-brand-600 hover:bg-brand-50 active:bg-brand-100 shrink-0"
+                    title={`Send to ${displayName}`}
+                  >
+                    <Send className="w-4 h-4" />
+                  </button>
+                  </div>
                   </SwipeRow>
                 );
               })}
@@ -2777,6 +2828,7 @@ export default function App() {
         <QuickSendModal
           recipient={quickSendTo}
           knownRecipients={contacts}
+          knownGroups={composeGroups}
           currentUser={currentUser}
           onSubmit={handleAddReminder}
           onClose={() => setQuickSendTo(null)}
@@ -2784,6 +2836,19 @@ export default function App() {
       )}
       {showInsights && <Insights onClose={() => setShowInsights(false)} />}
       {showChangePassword && <ChangePassword onClose={() => setShowChangePassword(false)} />}
+      {groupPictureFor && (() => {
+        const g = allGroups.find(x => x.key === groupPictureFor);
+        return (
+          <AvatarPicker
+            title="Group picture"
+            name={g ? groupLabel(g) : 'Group'}
+            uploadOwner={currentUser}
+            current={groupAvatars[groupPictureFor] ?? null}
+            onSave={(value) => handleSaveGroupAvatar(groupPictureFor, value)}
+            onClose={() => setGroupPictureFor(null)}
+          />
+        );
+      })()}
       {showGroupInfo && selectedGroupKey && (
         <GroupInfoSheet
           title={selectedGroupMeta?.groupName || selectedGroupMeta?.participants.join(', ') || 'Group'}
@@ -2792,6 +2857,8 @@ export default function App() {
           onOpenProfile={setProfileName}
           onRename={() => { setGroupNameDraft(selectedGroupMeta?.groupName || ''); setEditingGroupName(true); }}
           onClose={() => setShowGroupInfo(false)}
+          picture={groupAvatars[selectedGroupKey] ?? null}
+          onChangePicture={() => setGroupPictureFor(selectedGroupKey)}
         />
       )}
       {profileName && (
@@ -2819,6 +2886,7 @@ export default function App() {
           recipient=""
           initialRecipients={quickSendGroup}
           knownRecipients={contacts}
+          knownGroups={composeGroups}
           currentUser={currentUser}
           onSubmit={handleAddReminder}
           onClose={() => setQuickSendGroup(null)}
@@ -2829,6 +2897,7 @@ export default function App() {
         <QuickSendModal
           recipient=""
           knownRecipients={contacts}
+          knownGroups={composeGroups}
           currentUser={currentUser}
           onSubmit={handleAddReminder}
           onClose={() => setShowNewReminderModal(false)}
@@ -2839,6 +2908,7 @@ export default function App() {
         <QuickSendModal
           recipient=""
           knownRecipients={contacts}
+          knownGroups={composeGroups}
           currentUser={currentUser}
           onSubmit={handleAddReminder}
           onClose={() => setForwardingReminder(null)}

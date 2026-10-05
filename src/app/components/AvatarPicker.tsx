@@ -8,6 +8,10 @@ interface AvatarPickerProps {
   current: string | null;
   onSave: (value: string | null) => Promise<void>;
   onClose: () => void;
+  /** Heading, e.g. "Group picture" (defaults to "Your picture") */
+  title?: string;
+  /** Whose folder an uploaded photo goes in (defaults to `name`) */
+  uploadOwner?: string;
 }
 
 // Shrink a photo to a small square before uploading — profile pictures are tiny,
@@ -25,7 +29,7 @@ async function toSquareJpeg(file: File, size = 320): Promise<Blob> {
   );
 }
 
-export function AvatarPicker({ name, current, onSave, onClose }: AvatarPickerProps) {
+export function AvatarPicker({ name, current, onSave, onClose, title = 'Your picture', uploadOwner }: AvatarPickerProps) {
   const [choice, setChoice] = useState<string | null>(current);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,7 +43,7 @@ export function AvatarPicker({ name, current, onSave, onClose }: AvatarPickerPro
     setError(null);
     try {
       const blob = await toSquareJpeg(file);
-      const path = `${name}/avatar-${Date.now()}.jpg`;
+      const path = `${uploadOwner ?? name}/avatar-${Date.now()}.jpg`;
       const { error: uploadError } = await supabase.storage.from('nudge-uploads').upload(path, blob, { contentType: 'image/jpeg' });
       if (uploadError) throw uploadError;
       setChoice(supabase.storage.from('nudge-uploads').getPublicUrl(path).data.publicUrl);
@@ -65,7 +69,7 @@ export function AvatarPicker({ name, current, onSave, onClose }: AvatarPickerPro
     >
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-full flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
         <div className="px-4 py-3.5 border-b border-stone-200 flex items-center justify-between shrink-0">
-          <h3 className="text-lg">Your picture</h3>
+          <h3 className="text-lg">{title}</h3>
           <button onClick={onClose} className="p-1 -mr-1 text-stone-500" aria-label="Close"><X className="w-5 h-5" /></button>
         </div>
 

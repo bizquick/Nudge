@@ -1,4 +1,4 @@
-import { SUPABASE_URL, ANON_KEY } from './config.js';
+import { api, loadAccount, saveAccount, loadInbox, checkNudge, updateBadge } from './session.js';
 
 // The Addly panel in Chrome's toolbar. Sign in once; after that it keeps a private
 // send-key (like the iPhone Share menu does) and sends the page you're on to the
@@ -8,13 +8,12 @@ import { SUPABASE_URL, ANON_KEY } from './config.js';
 const hasChrome = typeof chrome !== 'undefined' && chrome.storage;
 const store = {
   async get() {
-    if (hasChrome) return (await chrome.storage.local.get(['addly', 'pending']));
-    return { addly: JSON.parse(localStorage.getItem('addly') || 'null'), pending: null };
+    const addly = await loadAccount();
+    if (hasChrome) { const { pending, tab } = await chrome.storage.local.get(['pending', 'tab']); return { addly, pending, tab }; }
+    return { addly, pending: null, tab: localStorage.getItem('addly.tab') };
   },
-  async set(addly) {
-    if (hasChrome) await chrome.storage.local.set({ addly });
-    else localStorage.setItem('addly', JSON.stringify(addly));
-  },
+  set: saveAccount,
+  async setTab(tab) { if (hasChrome) await chrome.storage.local.set({ tab }); else localStorage.setItem('addly.tab', tab); },
   async clearPending() { if (hasChrome) await chrome.storage.local.remove('pending'); },
   async clear() { if (hasChrome) await chrome.storage.local.clear(); else localStorage.removeItem('addly'); },
 };
@@ -26,27 +25,6 @@ let account = null;          // { key, me, contacts, refreshToken }
 let page = { url: '', title: '', image: '' };
 const picked = new Set();
 let saveToSelf = false;
-
-// ---- Talking to Addly ----
-async function api(path, { method = 'GET', token, body } = {}) {
-  const res = await fetch(SUPABASE_URL + path, {
-    method,
-    headers: {
-      apikey: ANON_KEY,
-      Authorization: `Bearer ${token || ANON_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const text = await res.text();
-  let data = null;
-  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
-  if (!res.ok) {
-    const message = data?.error_description || data?.msg || data?.message || data?.error || 'Something went wrong';
-    throw new Error(message);
-  }
-  return data;
-}
 
 // The people you've sent nudges to or gotten them from, most recent first
 async function loadContacts(token, me) {
@@ -68,16 +46,129 @@ async function signIn(email, password) {
   if (!me) throw new Error('Finish setting up your account in the Addly app first.');
   const key = await api('/rest/v1/rpc/create_share_key', { method: 'POST', token, body: {} });
   const contacts = await loadContacts(token, me);
-  account = { key, me, contacts, refreshToken: session.refresh_token };
+  account = {
+    key, me, contacts,
+    refreshToken: session.refresh_token,
+    accessToken: session.access_token,
+    expiresAt: Date.now() + (session.expires_in || 3600) * 1000,
+  };
   await store.set(account);
 }
 
 async function refreshFriends() {
-  if (!account?.refreshToken) return;
-  const session = await api('/auth/v1/token?grant_type=refresh_token', { method: 'POST', body: { refresh_token: account.refreshToken } });
-  account.contacts = await loadContacts(session.access_token, account.me);
-  account.refreshToken = session.refresh_token;
+  const { accessToken } = await import('./session.js');
+  const token = await accessToken();
+  if (!token) throw new Error('sign in again');
+  account = await loadAccount();
+  account.contacts = await loadContacts(token, account.me);
   await store.set(account);
+}
+
+// ---- Inbox: the nudges waiting for you ----
+function ago(iso) {
+  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 1) return 'now';
+  if (mins < 60) return `${mins}m ago`;
+  const h = Math.floor(mins / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return d < 7 ? `${d}d ago` : new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+function ytThumb(url) {
+  try {
+    const u = new URL(url);
+    const id = u.hostname.endsWith('youtu.be') ? u.pathname.slice(1) : u.searchParams.get('v');
+    return id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : '';
+  } catch { return ''; }
+}
+
+let inboxItems = [];
+function renderInbox() {
+  const box = $('inbox');
+  box.textContent = '';
+  $('inbox-count').textContent = String(inboxItems.length);
+  $('inbox-count').hidden = inboxItems.length === 0;
+  updateBadge(inboxItems.length);
+  if (!inboxItems.length) {
+    const p = document.createElement('p');
+    p.className = 'empty';
+    p.textContent = "You're all caught up. Nice!";
+    box.appendChild(p);
+    return;
+  }
+  for (const r of inboxItems) {
+    const row = document.createElement('div');
+    row.className = 'item';
+    const pic = document.createElement('div');
+    pic.className = 'pic';
+    const photo = (r.attachments || []).find(a => (a.type || '').startsWith('image/'))?.url;
+    const image = photo || r.preview_image || ytThumb(r.url || '');
+    if (image) pic.style.backgroundImage = `url("${image.replace(/"/g, '%22')}")`;
+    else pic.textContent = Array.isArray(r.todo_items) ? '☑' : (r.sender[0] || '?').toUpperCase();
+    const body = document.createElement('div');
+    body.className = 'body';
+    const t = document.createElement('p');
+    t.className = 't';
+    t.textContent = (r.prioritized_at ? '🤯 ' : '') + (r.title || r.url || 'Nudge');
+    const sub = document.createElement('p');
+    sub.className = 's';
+    const from = r.sender === account.me ? 'You' : r.sender;
+    sub.textContent = [r.group_name || from, ago(r.created_at), Array.isArray(r.todo_items) ? `To-do ${r.todo_items.filter(i => i.done).length}/${r.todo_items.length}` : ''].filter(Boolean).join(' · ');
+    body.append(t, sub);
+    if (r.content && r.content !== r.title) {
+      const note = document.createElement('p');
+      note.className = 'note';
+      note.textContent = `“${r.content.slice(0, 140)}”`;
+      note.hidden = true;
+      body.appendChild(note);
+    }
+    // Tap: open the link in a new tab (or show the note if there's no link)
+    body.addEventListener('click', () => {
+      if (r.url && hasChrome) chrome.tabs.create({ url: r.url });
+      else if (r.url) window.open(r.url, '_blank');
+      else { const n = body.querySelector('.note'); if (n) n.hidden = !n.hidden; }
+    });
+    const check = document.createElement('button');
+    check.className = 'check';
+    check.type = 'button';
+    check.textContent = '✓ Checked';
+    check.title = 'Check it off (just for you)';
+    check.addEventListener('click', async () => {
+      check.disabled = true;
+      try {
+        await checkNudge(r.id);
+        row.classList.add('leaving');
+        setTimeout(() => { inboxItems = inboxItems.filter(x => x.id !== r.id); renderInbox(); }, 250);
+      } catch {
+        check.disabled = false;
+        check.textContent = 'Try again';
+      }
+    });
+    row.append(pic, body, check);
+    box.appendChild(row);
+  }
+}
+
+async function loadAndRenderInbox() {
+  const box = $('inbox');
+  if (!inboxItems.length) box.innerHTML = '<p class="empty">Loading…</p>';
+  try {
+    const items = await loadInbox();
+    if (items === null) { box.innerHTML = '<p class="empty">Sign out and back in to see your inbox.</p>'; return; }
+    inboxItems = items;
+    renderInbox();
+  } catch {
+    box.innerHTML = '<p class="empty">Couldn\u2019t load your inbox. Check your connection.</p>';
+  }
+}
+
+function selectTab(which) {
+  $('tab-inbox').setAttribute('aria-selected', String(which === 'inbox'));
+  $('tab-send').setAttribute('aria-selected', String(which === 'send'));
+  $('inbox-pane').hidden = which !== 'inbox';
+  $('send-pane').hidden = which !== 'send';
+  store.setTab(which);
 }
 
 // ---- The page you're on ----
@@ -181,13 +272,16 @@ async function send() {
 
 // ---- Start ----
 async function start() {
-  const { addly, pending } = await store.get();
+  const { addly, pending, tab } = await store.get();
   account = addly;
   if (!account?.key) { show('signin'); return; }
   show('send');
   $('me').textContent = account.me;
-  await loadPage(pending);
+  const sendable = await loadPage(pending);
   renderPeople();
+  // Right-clicked "Send to Addly", or on a page that can't be sent? Pick the sensible tab
+  selectTab(pending?.url ? 'send' : !sendable ? 'inbox' : (tab === 'inbox' ? 'inbox' : 'send'));
+  loadAndRenderInbox();
 }
 
 $('signin-form').addEventListener('submit', async (e) => {
@@ -208,6 +302,8 @@ $('signin-form').addEventListener('submit', async (e) => {
   }
 });
 $('send-button').addEventListener('click', send);
+$('tab-inbox').addEventListener('click', () => { selectTab('inbox'); loadAndRenderInbox(); });
+$('tab-send').addEventListener('click', () => selectTab('send'));
 $('search').addEventListener('input', renderPeople);
 $('signout').addEventListener('click', async (e) => {
   e.preventDefault();
@@ -215,6 +311,7 @@ $('signout').addEventListener('click', async (e) => {
     try { await api('/rest/v1/rpc/revoke_share_key', { method: 'POST', body: { p_key: account.key } }); } catch { /* forget it locally either way */ }
   }
   await store.clear();
+  updateBadge(0);
   account = null;
   picked.clear();
   show('signin');
