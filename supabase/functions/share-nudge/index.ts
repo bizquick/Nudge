@@ -1,4 +1,4 @@
-// Addly "Share" menu - Supabase Edge Function (deploy it in Supabase under the name "share-nudge").
+// Addly "Share" menu - Supabase Edge Function (deployed in Supabase, where it got the name "smooth-function").
 //
 // The Share menu on iPhone (and the Chrome extension) sends what you shared here,
 // along with your private send-key. This checks the key, fills in the link's title

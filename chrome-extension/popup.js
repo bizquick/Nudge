@@ -158,7 +158,7 @@ async function send() {
   $('send-button').textContent = 'Sending…';
   $('send-error').hidden = true;
   try {
-    await api('/functions/v1/share-nudge', {
+    await api('/functions/v1/smooth-function', {
       method: 'POST',
       body: {
         key: account.key,

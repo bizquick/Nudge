@@ -137,7 +137,7 @@ final class ShareModel: ObservableObject {
     func send() async {
         guard let key, let base = defaults?.string(forKey: "supabaseUrl"),
               let anon = defaults?.string(forKey: "anonKey"),
-              let endpoint = URL(string: base + "/functions/v1/share-nudge") else {
+              let endpoint = URL(string: base + "/functions/v1/smooth-function") else {
             error = "Open Addly and sign in, then try again."
             return
         }
