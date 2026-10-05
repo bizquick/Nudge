@@ -274,7 +274,6 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
     }
 
     if (trimmed) return { title: trimmed, previewImage };
-    if (content.trim()) return { title: content.trim().slice(0, 60), previewImage };
     if (attachments.length) {
       const photos = attachments.filter(a => a.type.startsWith('image/')).length;
       const title = photos === attachments.length
@@ -282,6 +281,7 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
         : attachments.length === 1 ? attachments[0].name : `${attachments.length} files`;
       return { title, previewImage };
     }
+    if (content.trim()) return { title: content.trim().split('\n')[0].slice(0, 80), previewImage };
     return { title: 'Untitled nudge', previewImage };
   };
 
@@ -321,7 +321,10 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
     batches.forEach(recipients => onSubmit({
       type: finalType,
       title: resolved.title,
-      content: isTodo ? '' : content,
+      // Just words? The first line is the title; anything after it is the note
+      content: isTodo ? '' : (!normalizeUrl(url) && !attachments.length && !title.trim())
+        ? content.trim().split('\n').slice(1).join('\n').trim() || (content.trim().length > 80 ? content.trim() : '')
+        : content.trim(),
       url: isTodo ? undefined : (normalizeUrl(url) || undefined),
       // The card's thumbnail: the link's preview, or else the first attached photo
       previewImage: isTodo ? undefined : (resolved.previewImage || attachments.find(a => a.type.startsWith('image/'))?.url),
@@ -346,7 +349,7 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
 
   const people = recipient ? [recipient] : selectedRecipients.filter(r => r !== currentUser);
   const willSaveToSelf = !recipient && isSaveToSelf;
-  const hasContent = isTodo ? !!title.trim() && todoItems.length > 0 : !!(title.trim() || url.trim() || attachments.length);
+  const hasContent = isTodo ? !!title.trim() && todoItems.length > 0 : !!(title.trim() || url.trim() || attachments.length || content.trim());
   const canSend = !submitting && !uploading && (people.length > 0 || willSaveToSelf) && hasContent;
   const sendLabel = submitting
     ? 'Sending…'
@@ -561,16 +564,18 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
             {uploadError && <p className="text-xs text-red-500 mt-1">{uploadError}</p>}
           </div>
 
-          {/* Title + description as open writing space */}
+          {/* One writing space (to-do lists also get a title for the list) */}
           <div>
-            <input
-              id="quick-title"
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder={isTodo ? 'List title' : url.trim() ? "Title (or we'll use the link's)" : 'Title'}
-              className="w-full pb-2.5 text-base font-medium bg-transparent border-b border-stone-200 focus:outline-none focus:border-brand-400 placeholder:text-stone-400 placeholder:font-normal"
-            />
+            {isTodo && (
+              <input
+                id="quick-title"
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="List title"
+                className="w-full pb-2.5 text-base font-medium bg-transparent border-b border-stone-200 focus:outline-none focus:border-brand-400 placeholder:text-stone-400 placeholder:font-normal"
+              />
+            )}
             {/* A divider line under the title makes it clear where each field starts */}
             {isTodo ? (
               <div className="mt-2 space-y-1">
@@ -618,9 +623,9 @@ export function QuickSendModal({ recipient, knownRecipients, currentUser, onClos
                 id="quick-content"
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
-                placeholder="Why should they check it out?"
+                placeholder={url.trim() || attachments.length ? 'Say something about it (optional)' : "What's on your mind?"}
                 rows={3}
-                className="w-full mt-3 text-sm text-stone-700 bg-transparent focus:outline-none resize-none placeholder:text-stone-400"
+                className="w-full text-base text-stone-800 bg-transparent focus:outline-none resize-none placeholder:text-stone-400"
               />
             )}
           </div>

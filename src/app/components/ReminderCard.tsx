@@ -6,6 +6,7 @@ import { Avatar, ProfileLink } from './Avatar';
 import { CATEGORY_LABELS } from './SortMenu';
 import { PhotoViewer } from './PhotoViewer';
 import { TodoEditor } from './TodoEditor';
+import { LinkCard } from './LinkCard';
 import { guessCategory } from '../utils/guessCategory';
 import { uploadAttachment } from '../utils/upload';
 import type { Attachment } from '../App';
@@ -155,7 +156,7 @@ export function ReminderCard({
       {[
         `Sent ${stampTime(reminder.createdAt)}`,
         (isParticipant || anyoneCanCheck) && reminder.checkedOut
-          ? `${todos ? 'Completed' : 'Checked'}${reminder.checkedAt ? ' ' + stampTime(reminder.checkedAt) : ''}`
+          ? `${todos ? 'Completed' : '✓ Checked'}${reminder.checkedAt ? ' ' + stampTime(reminder.checkedAt) : ''}`
           : null,
       ].filter(Boolean).join(' · ')}
       {hasUnseenMessages && <span className="ml-1.5 px-1.5 py-px rounded-full bg-notify text-white text-[10px]">New message</span>}
@@ -291,13 +292,16 @@ export function ReminderCard({
         : rich && reminder.prioritizedAt && !reminder.checkedOut
           ? 'border-gold-300 !bg-gold-50'
           : reminder.checkedOut
-          ? 'border-green-500'
+          // Checked: a green edge, but the fill still says who sent it (blue = you, green = them)
+          ? (sentByMe ? 'border-green-500 border-dashed' : 'border-green-500')
           : fromMe
             ? 'border-gold-200'
             : sentByMe
               ? 'border-sky-200'
               : 'border-stone-200 hover:border-stone-300'
-    } ${reminder.checkedOut ? 'bg-green-100' : fromMe ? 'bg-gold-50' : sentByMe ? 'bg-sky-50' : 'bg-white'}`}>
+    } ${reminder.checkedOut
+          ? (fromMe ? 'bg-gold-50' : sentByMe ? 'bg-sky-100' : 'bg-green-100')
+          : fromMe ? 'bg-gold-50' : sentByMe ? 'bg-sky-50' : 'bg-white'}`}>
       {compact ? (
         // Under the big card: just what it doesn't show (more photos, files, who's checked)
         <div className="px-4 pt-3 empty:hidden" onClick={(e) => e.stopPropagation()}>
@@ -454,14 +458,15 @@ export function ReminderCard({
                   e.stopPropagation();
                   onToggleCheckedOut(reminder.id);
                 }}
-                className={`p-2.5 rounded-lg shrink-0 transition-all hover:scale-110 ${
+                className={`h-10 px-3.5 rounded-xl shrink-0 flex items-center gap-1.5 text-sm transition-colors ${
                   reminder.checkedOut
                     ? 'bg-green-600 text-white'
-                    : 'bg-white border-2 border-stone-300 text-stone-400 hover:bg-stone-50 hover:border-stone-400'
+                    : 'bg-white border-2 border-stone-300 text-stone-600 active:bg-stone-50'
                 }`}
-                title={reminder.checkedOut ? 'Mark as unread' : 'Mark as checked out'}
+                title={reminder.checkedOut ? 'Tap to un-check' : 'Mark as checked'}
+                aria-pressed={reminder.checkedOut}
               >
-                <Check className="w-5 h-5" />
+                <Check className="w-4 h-4" /> Checked
               </button>}
 
               {Icon && effectiveType && (
@@ -504,27 +509,15 @@ export function ReminderCard({
               )}
             </div>
 
-            {/* The link, as a preview you can tap (like links in Messages) */}
+            {/* The link, as a card you can tap — styled like the app it's from (YouTube, Spotify…) */}
             {reminder.url && (
-              <a
-                href={reminder.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="mb-3 -mx-1 block rounded-xl overflow-hidden border border-stone-200 bg-white active:bg-stone-50"
-              >
-                {reminder.previewImage && !photos.includes(reminder.previewImage) && (
-                  <img src={reminder.previewImage} alt="" className="w-full h-40 object-cover bg-stone-100" />
-                )}
-                <span className="flex items-center gap-2 px-3 py-2.5">
-                  <Globe className="w-4 h-4 text-stone-400 shrink-0" />
-                  <span className="flex-1 min-w-0">
-                    <span className="block text-[13px] text-stone-800 truncate">{reminder.title || domainOf(reminder.url)}</span>
-                    <span className="block text-[11px] text-stone-500 truncate">{domainOf(reminder.url) ?? reminder.url}</span>
-                  </span>
-                  <ExternalLink className="w-4 h-4 text-brand-600 shrink-0" />
-                </span>
-              </a>
+              <div className="-mx-1">
+                <LinkCard
+                  url={reminder.url}
+                  image={reminder.previewImage && !photos.includes(reminder.previewImage) ? reminder.previewImage : undefined}
+                  title={reminder.title}
+                />
+              </div>
             )}
 
             {photos.length > 0 && (
@@ -590,6 +583,9 @@ export function ReminderCard({
                 <button onClick={handleTitleSave} className="text-brand-600 text-sm shrink-0">Save</button>
               </div>
             ) : (
+              // The link card above already shows the title, so it isn't repeated here
+              // (group nudges keep it, for the rename pencil)
+              (reminder.url && !isGroup && !reminder.prioritizedAt && !muted) ? null :
               <div className="flex items-center gap-2 mb-1">
                 <h3 className="text-lg sm:text-lg flex-1 min-w-0">
                   {reminder.prioritizedAt && <span className="mr-1.5" title="Priority">🤯</span>}

@@ -13,6 +13,8 @@ const FOOD_SITES = ['allrecipes.com', 'seriouseats.com', 'bonappetit.com', 'food
 const SHOPPING_SITES = ['amazon.com', 'a.co', 'amzn.to', 'etsy.com', 'ebay.com', 'target.com', 'walmart.com', 'bestbuy.com',
   'costco.com', 'wayfair.com', 'ikea.com', 'nike.com', 'apple.com/shop', 'temu.com', 'shein.com', 'homedepot.com',
   'lowes.com', 'sephora.com', 'ulta.com', 'zara.com', 'uniqlo.com', 'rei.com', 'aliexpress.com'];
+const SOCIAL_SITES = ['instagram.com', 'instagr.am', 'reddit.com', 'redd.it', 'facebook.com', 'fb.com', 'twitter.com', 'x.com',
+  'threads.net', 'threads.com', 'pinterest.com', 'pin.it', 'linkedin.com', 'snapchat.com', 'bsky.app'];
 const HACK_SITES = ['lifehacker.com', 'wikihow.com', 'instructables.com'];
 const INTERESTING_SITES = ['wikipedia.org', 'ted.com', 'nationalgeographic.com', 'smithsonianmag.com', 'atlasobscura.com',
   'nasa.gov', 'aeon.co', 'quantamagazine.org', 'mentalfloss.com', 'vox.com'];
@@ -48,7 +50,12 @@ export function guessCategory(input: { url?: string; title?: string; content?: s
       if (onSite(where, MUSIC_SITES)) return 'music';
       if (onSite(where, VIDEO_SITES) || /instagram\.com\/(reel|tv)\//.test(where)) return 'video';
       if (onSite(where, FOOD_SITES)) return 'food';
-      if (onSite(where, SHOPPING_SITES) || /\/(dp|product|products|item|p)\//.test(where)) return 'unnecessary';
+      // Social posts are just posts (Instagram's "/p/" links aren't product pages)
+      if (onSite(where, SOCIAL_SITES)) {
+        for (const [type, pattern] of WORDS) if (pattern.test(words)) return type;
+        return 'website';
+      }
+      if (onSite(where, SHOPPING_SITES) || /\/(dp|product|products|item)\//.test(where)) return 'unnecessary';
       if (onSite(where, HACK_SITES)) return 'lifehack';
       if (onSite(where, INTERESTING_SITES)) return 'interesting';
     }

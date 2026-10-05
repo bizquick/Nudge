@@ -414,6 +414,8 @@ export default function App() {
   const [savedView, setSavedView] = useState<'favorited' | 'archived' | null>(null);
   // Explore: which nudge is the big card up top (picking one never reorders anything)
   const [exploreHeroId, setExploreHeroId] = useState<string | null>(null);
+  // Home: showing only one friend's (or group's) nudges — tap their picture at the top
+  const [queuePerson, setQueuePerson] = useState<string | null>(null);
   const [showRequests, setShowRequests] = useState(false);
   // "Later": nudges you pushed to the back of your queue (kept on this phone)
   const [laterAt, setLaterAt] = useState<Record<string, number>>(() => {
@@ -1754,16 +1756,63 @@ export default function App() {
   // ---- Home queue ----
   // Everything waiting for you, in your chosen order (🤯 priorities first). Nudges you
   // tapped "Later" on go to the back, in the order you pushed them there.
-  const homeQueue = (() => {
+  // Who a nudge is "from" on Home: the group it's in, or the person who sent it
+  const queueKeyOf = (r: Reminder) => { const g = groupKeyFor(r); return g ? 'group:' + g : 'contact:' + r.sender; };
+  const fullQueue = (() => {
     const base = withPrioritiesFirst(
-      sortReminders(homeReminders.filter(r => (!isDone(r) || r.id === expandedId) && !reopenedReminders.includes(r)), sortSettings.unread),
+      sortReminders(homeReminders.filter(r =>
+        (!isDone(r) || r.id === expandedId)
+        && !reopenedReminders.includes(r)
+        // A to-do list leaves YOUR queue once you've tapped Complete (it stays for the others)
+        && !(r.todoItems && r.completedBy.includes(currentUser) && r.id !== expandedId)
+      ), sortSettings.unread),
       expandedId, false
     );
     const now = base.filter(r => !laterAt[r.id]);
     const later = base.filter(r => laterAt[r.id]).sort((a, b) => laterAt[a.id] - laterAt[b.id]);
     return [...now, ...later];
   })();
-  const queueLeft = homeQueue.filter(r => !isDone(r)).length + reopenedReminders.length;
+  const homeQueue = queuePerson ? fullQueue.filter(r => queueKeyOf(r) === queuePerson) : fullQueue;
+
+  // The friends (and groups) with something in your queue, most first
+  const queuePeople = (() => {
+    const map = new Map<string, { key: string; label: string; avatar: string; count: number }>();
+    [...fullQueue, ...reopenedReminders].forEach(r => {
+      const key = queueKeyOf(r);
+      const existing = map.get(key);
+      if (existing) { existing.count++; return; }
+      const g = groupKeyFor(r);
+      const group = g ? allGroups.find(x => x.key === g) : null;
+      const label = group ? groupLabel(group) : r.sender === currentUser ? 'You' : r.sender;
+      map.set(key, { key, label, avatar: group ? label : r.sender, count: 1 });
+    });
+    return Array.from(map.values()).sort((a, b) => b.count - a.count);
+  })();
+  const peopleRow = queuePeople.length > 1 || queuePerson ? (
+    <div className="-mx-4 px-4 mb-3 flex gap-3.5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      {queuePeople.map(p => {
+        const active = queuePerson === p.key;
+        return (
+          <button
+            key={p.key}
+            onClick={() => { setQueuePerson(active ? null : p.key); setExpandedId(null); }}
+            className={`shrink-0 w-[58px] flex flex-col items-center transition-opacity ${queuePerson && !active ? 'opacity-45' : ''}`}
+            aria-pressed={active}
+            aria-label={`${p.label}: ${p.count} waiting${active ? ' (showing only these)' : ''}`}
+          >
+            <span className={`relative rounded-full p-[2px] ${active ? 'bg-brand-600' : 'bg-transparent'}`}>
+              <span className="block rounded-full p-[1.5px] bg-[#FBF6EC]"><Avatar name={p.avatar} size={46} /></span>
+              <span className="absolute -top-0.5 -right-1 min-w-[20px] h-5 px-1 rounded-full bg-notify text-white text-[11px] flex items-center justify-center border-2 border-[#FBF6EC]">
+                {p.count}
+              </span>
+            </span>
+            <span className="mt-1 text-[11px] text-stone-700 truncate w-full text-center">{p.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  ) : null;
+  const queueLeft = fullQueue.filter(r => !isDone(r)).length + reopenedReminders.length;
 
   // Your checks by day (for "done today", the week dots, and your streak)
   const checkDays = new Set(
@@ -2197,7 +2246,7 @@ export default function App() {
             <HomeQueue
               currentUser={currentUser}
               queue={homeQueue}
-              withNewMessages={reopenedReminders}
+              withNewMessages={queuePerson ? reopenedReminders.filter(r => queueKeyOf(r) === queuePerson) : reopenedReminders}
               messageCount={(id) => shownMessages.filter(m => m.reminderId === id).length}
               hasNewMessage={hasNewMessages}
               expandedId={expandedId}
@@ -2206,6 +2255,7 @@ export default function App() {
               onDone={handleQueueDone}
               onLater={handleLater}
               requestsBanner={requestsBanner}
+              peopleRow={peopleRow}
               sortControl={<SortMenu value={sortSettings.unread} onChange={(st) => changeSort('unread', st)} />}
               doneToday={doneToday}
               week={week}

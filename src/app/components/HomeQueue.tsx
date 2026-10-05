@@ -6,6 +6,7 @@ import { Avatar, ProfileLink } from './Avatar';
 import { CATEGORY_LABELS } from './SortMenu';
 import { PhotoViewer } from './PhotoViewer';
 import { guessCategory } from '../utils/guessCategory';
+import { LinkHero } from './LinkCard';
 
 // The category to show: the sender's pick, or the app's best guess from the content
 const categoryOf = (r: Reminder): ReminderType | null =>
@@ -55,6 +56,8 @@ interface HomeQueueProps {
   onSelect?: (id: string) => void;
   /** Explore: shown under the list (progress, "Show me 10 more") */
   footer?: ReactNode;
+  /** Home: friends with nudges waiting (tap one to see only theirs) */
+  peopleRow?: ReactNode;
   /** Slim banner for nudge requests (or null) */
   requestsBanner: ReactNode;
   sortControl: ReactNode;
@@ -78,6 +81,7 @@ export function HomeQueue(props: HomeQueueProps) {
     if (explore) return <>{props.footer}</>;
     return (
       <>
+        {props.peopleRow}
         {requestsBanner}
         <AllCaughtUp {...props} />
       </>
@@ -86,6 +90,7 @@ export function HomeQueue(props: HomeQueueProps) {
 
   return (
     <div className="pb-2">
+      {props.peopleRow}
       {requestsBanner}
       {upNext && (
         <UpNextCard
@@ -118,7 +123,7 @@ export function HomeQueue(props: HomeQueueProps) {
             ))}
           </div>
           <p className="mt-2 text-[11px] text-stone-400">
-            {explore ? 'Tap one to open it up top · swipe right to check it' : 'Swipe right to mark done · left for later'}
+            {explore ? 'Tap one to open it up top · swipe right to check it' : 'Swipe right to check · left for later'}
           </p>
         </>
       )}
@@ -162,8 +167,11 @@ function UpNextCard({ reminder: r, currentUser, onDone, onLater, messageCount, o
       }`}
       data-nudge-card
     >
-      {/* The picture (or a big category tile). Tapping it opens what was sent. */}
-      {picture ? (
+      {/* The picture (or a big tile). Tapping it opens what was sent — the link itself,
+          shown like the app it's from (YouTube thumbnail, Spotify album art…). */}
+      {!photos.length && r.url && LinkHero({ url: r.url, image: r.previewImage, title: r.title }) ? (
+        <LinkHero url={r.url} image={r.previewImage} title={r.title} />
+      ) : picture ? (
         photos.length ? (
           <button type="button" onClick={() => setViewer(0)} className="block w-full" aria-label="View photo">
             <img src={picture} alt="" className="w-full h-44 object-cover bg-stone-100" />
@@ -175,6 +183,12 @@ function UpNextCard({ reminder: r, currentUser, onDone, onLater, messageCount, o
         ) : (
           <img src={picture} alt="" className="w-full h-44 object-cover bg-stone-100" />
         )
+      ) : r.url ? (
+        <a href={r.url} target="_blank" rel="noopener noreferrer" aria-label="Open link"
+          className={`h-28 flex flex-col items-center justify-center gap-1.5 ${type ? CATEGORY_TILE[type] : 'bg-stone-100 text-stone-500'}`}>
+          <Icon className="w-8 h-8" />
+          <span className="text-[12px] opacity-80">Tap to open</span>
+        </a>
       ) : (
         <div className={`h-28 flex items-center justify-center ${type ? CATEGORY_TILE[type] : 'bg-stone-100 text-stone-500'}`}>
           <Icon className="w-8 h-8" />
@@ -193,13 +207,14 @@ function UpNextCard({ reminder: r, currentUser, onDone, onLater, messageCount, o
           </span>
           {r.prioritizedAt && <span title="Priority">🤯</span>}
         </div>
-        <p className="mt-2 text-[17px] leading-snug font-medium text-stone-900 break-words">{r.title}</p>
-        {r.content && <p className="mt-1 text-[14px] text-stone-600 break-words line-clamp-3">“{r.content}”</p>}
-        {r.url && (
-          <a href={r.url} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex items-center gap-1 text-sm text-brand-600">
-            <ExternalLink className="w-4 h-4" /> Open link
+        {r.url ? (
+          <a href={r.url} target="_blank" rel="noopener noreferrer" className="mt-2 block text-[17px] leading-snug font-medium text-stone-900 break-words">
+            {r.title} <ExternalLink className="inline w-4 h-4 text-brand-600 align-[-2px]" />
           </a>
+        ) : (
+          <p className="mt-2 text-[17px] leading-snug font-medium text-stone-900 break-words">{r.title}</p>
         )}
+        {r.content && r.content !== r.title && <p className="mt-1 text-[14px] text-stone-600 break-words line-clamp-3">“{r.content}”</p>}
 
         <div className="mt-4 flex gap-2">
           <button
@@ -216,7 +231,7 @@ function UpNextCard({ reminder: r, currentUser, onDone, onLater, messageCount, o
               explore && r.checkedOut ? 'bg-green-100 text-green-800 border border-green-300' : 'bg-brand-600 text-white active:bg-brand-700'
             }`}
           >
-            <Check className="w-5 h-5" /> {explore ? (r.checkedOut ? 'Checked' : 'Check') : 'Done'}
+            <Check className="w-5 h-5" /> Checked
           </button>
         </div>
         <button type="button" onClick={onToggleOpen} className="mt-2.5 w-full flex items-center justify-center gap-1 text-[12px] text-stone-500">
@@ -284,7 +299,7 @@ function SwipeToAct({ onRight, onLeft, stay, children }: { onRight?: () => void;
     <div className={`relative overflow-hidden border-b border-stone-200/80 transition-[max-height,opacity] duration-200 ${gone ? 'max-h-0 opacity-0' : 'max-h-40'}`}>
       <div className="absolute inset-0 flex items-center justify-between px-4 text-white text-sm" aria-hidden="true"
         style={{ background: dx > 0 ? '#1F5C3F' : dx < 0 ? '#A9792A' : 'transparent' }}>
-        <span className="flex items-center gap-1.5" style={{ opacity: dx > 0 ? Math.min(1, dx / THRESHOLD) : 0 }}><Check className="w-4 h-4" /> Done</span>
+        <span className="flex items-center gap-1.5" style={{ opacity: dx > 0 ? Math.min(1, dx / THRESHOLD) : 0 }}><Check className="w-4 h-4" /> Checked</span>
         <span className="flex items-center gap-1.5" style={{ opacity: dx < 0 ? Math.min(1, -dx / THRESHOLD) : 0 }}>Later <Clock className="w-4 h-4" /></span>
       </div>
       <div
