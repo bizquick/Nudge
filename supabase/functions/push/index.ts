@@ -154,7 +154,7 @@ Deno.serve(async (req) => {
     await notify(people, {
       title: clean(message.sender, 60),
       subtitle: clean(nudge.title, 80),
-      body: clean(message.text) || 'New message',
+      body: clean(message.text) || (Array.isArray(message.attachments) && message.attachments.length ? 'Sent a photo' : 'New message'),
     }, nudge.id, message.sender, 'message');
   }
   return new Response('ok');

@@ -17,7 +17,7 @@ interface ReminderListProps {
   onUpdateTitle: (id: string, title: string) => void;
   onForward: (reminder: Reminder) => void;
   onUpvote?: (id: string) => void;
-  onAddMessage: (reminderId: string, text: string) => void;
+  onAddMessage: (reminderId: string, text: string, attachments?: import('../App').Attachment[]) => void;
   onToggleReaction: (reminderId: string, emoji: string) => void;
   reorderable?: boolean;
   onReorder?: (orderedIds: string[]) => void;
@@ -57,6 +57,8 @@ interface ReminderListProps {
   checkedBy?: Record<string, string[]>;
   /** Nudges shown already open (Home's "Up next") */
   openIds?: Set<string>;
+  /** Show only the parts a big card above doesn't already show */
+  compact?: boolean;
 }
 
 export function ReminderList({
@@ -98,7 +100,8 @@ export function ReminderList({
   onWithdraw,
   openMessagesId,
   checkedBy,
-  openIds
+  openIds,
+  compact
 }: ReminderListProps) {
   // Drag to reorder. Pick a card up by pressing and holding anywhere on it
   // (or instantly from the grab strip at its top); it then follows your
@@ -445,6 +448,7 @@ export function ReminderList({
             onWithdraw={onWithdraw}
             openMessages={openMessagesId === reminder.id}
             checkedBy={checkedBy ? (checkedBy[reminder.id] ?? []) : undefined}
+            compact={compact}
             onTogglePriority={onTogglePriority}
             rich={richCards}
             muted={muted}

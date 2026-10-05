@@ -30,6 +30,8 @@ export interface Message {
   sender: string;
   text: string;
   createdAt: Date;
+  /** Photos sent in the conversation */
+  attachments: Attachment[];
 }
 
 export interface Reaction {
@@ -175,7 +177,8 @@ function rowToMessage(row: any): Message {
     reminderId: row.reminder_id,
     sender: row.sender,
     text: row.text,
-    createdAt: new Date(row.created_at)
+    createdAt: new Date(row.created_at),
+    attachments: Array.isArray(row.attachments) ? row.attachments : []
   };
 }
 
@@ -409,6 +412,8 @@ export default function App() {
   const [showGroupInfo, setShowGroupInfo] = useState(false);
   // Favorites and Checked now live under the Nudges tab (Home is just your queue)
   const [savedView, setSavedView] = useState<'favorited' | 'archived' | null>(null);
+  // Explore: which nudge is the big card up top (picking one never reorders anything)
+  const [exploreHeroId, setExploreHeroId] = useState<string | null>(null);
   const [showRequests, setShowRequests] = useState(false);
   // "Later": nudges you pushed to the back of your queue (kept on this phone)
   const [laterAt, setLaterAt] = useState<Record<string, number>>(() => {
@@ -1166,9 +1171,9 @@ export default function App() {
     }
   };
 
-  const handleAddMessage = async (reminderId: string, text: string) => {
+  const handleAddMessage = async (reminderId: string, text: string, attachments: Attachment[] = []) => {
     if (!currentUser) return;
-    const payload = { reminder_id: reminderId, sender: currentUser, text };
+    const payload = { reminder_id: reminderId, sender: currentUser, text, ...(attachments.length ? { attachments } : {}) };
     const { data, error } = await supabase.from('messages').insert(payload).select().single();
     if (error) {
       console.error(error);
@@ -1692,10 +1697,11 @@ export default function App() {
   const unreadPriorityCount = inboxReminders.filter(r => r.prioritizedAt && !r.checkedOut && !r.archived).length;
 
   // One Home list (rich cards). Unread uses several of these — one per section.
-  const renderHomeList = (list: Reminder[], emptyMessage?: string, opts: { openIds?: Set<string> } = {}) => (
+  const renderHomeList = (list: Reminder[], emptyMessage?: string, opts: { openIds?: Set<string>; compact?: boolean } = {}) => (
             <ReminderList
               richCards
               openIds={opts.openIds}
+              compact={opts.compact}
               reminders={list}
               viewType="received"
               currentUser={currentUser}
@@ -2102,22 +2108,6 @@ export default function App() {
                     {doneToday > 0 ? ` · ${doneToday} done today` : ''}
                   </p>
                 </div>
-                {(queueLeft > 0 || doneToday > 0) && (
-                  <div className="relative w-12 h-12 shrink-0" aria-label={`${doneToday} of ${doneToday + queueLeft} done today`}>
-                    <svg width="48" height="48" viewBox="0 0 48 48">
-                      <circle cx="24" cy="24" r="19" fill="none" stroke="#E7E1D3" strokeWidth="5" />
-                      {doneToday > 0 && <circle
-                        cx="24" cy="24" r="19" fill="none" stroke="#2E7552" strokeWidth="5" strokeLinecap="round"
-                        strokeDasharray={`${(doneToday / Math.max(1, doneToday + queueLeft)) * 119.4} 119.4`}
-                        transform="rotate(-90 24 24)"
-                        style={{ transition: 'stroke-dasharray 400ms ease' }}
-                      />}
-                    </svg>
-                    <span className="absolute inset-0 flex items-center justify-center text-[11px] text-stone-700">
-                      {doneToday}/{doneToday + queueLeft}
-                    </span>
-                  </div>
-                )}
               </div>
             ) : mobileTab === 'people' && savedView ? (
               <div className="pt-1 flex items-center gap-1 -ml-2">
@@ -2212,7 +2202,7 @@ export default function App() {
               hasNewMessage={hasNewMessages}
               expandedId={expandedId}
               onExpand={setExpandedId}
-              renderFull={(r) => renderHomeList([r], undefined, { openIds: new Set([r.id]) })}
+              renderFull={(r, compact) => renderHomeList([r], undefined, { openIds: new Set([r.id]), compact })}
               onDone={handleQueueDone}
               onLater={handleLater}
               requestsBanner={requestsBanner}
@@ -2273,21 +2263,81 @@ export default function App() {
                 </button>
               </div>
 
-              {popularSubTab === 'explore' && nudgeStates && exploreBatch.length > 0 && (
-                <p className="mb-2 text-xs text-stone-500">
-                  {exploreAllChecked
-                    ? 'All checked! Favorite any you want to keep, then get 10 more.'
-                    : `${exploreBatch.filter(r => r.checkedOut).length} of ${exploreBatch.length} checked. Check them all to get 10 more.`}
-                </p>
-              )}
-
-              {popularSubTab === 'explore' && nudgeStates && exploreBatch.length === 0 && exploreFresh.length === 0 ? (
-                <div className="text-center pt-14 px-6">
-                  <div className="text-5xl mb-3" aria-hidden="true">🌟</div>
-                  <p className="text-lg text-stone-800">You've seen it all!</p>
-                  <p className="text-sm text-stone-500 mt-1">Come back later to see more cool stuff.</p>
-                </div>
+              {popularSubTab === 'explore' && nudgeStates ? (
+                <HomeQueue
+                  mode="explore"
+                  currentUser={currentUser}
+                  queue={exploreBatch}
+                  withNewMessages={[]}
+                  heroId={exploreHeroId}
+                  onSelect={(id) => { setExploreHeroId(id); setExpandedId(null); scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                  messageCount={(id) => shownMessages.filter(m => m.reminderId === id).length}
+                  hasNewMessage={() => false}
+                  expandedId={expandedId}
+                  onExpand={setExpandedId}
+                  renderFull={(r) => (
+                    <ReminderList
+                      richCards
+                      compact
+                      openIds={new Set([r.id])}
+                      anyoneCanCheck
+                      reminders={[r]}
+                      viewType="received"
+                      currentUser={currentUser}
+                      messages={shownMessages}
+                      selectedId={expandedId}
+                      onSelectId={() => {}}
+                      onToggleCheckedOut={handleTogglePopularCheck}
+                      onArchive={handleArchive}
+                      onAddMessage={handleAddMessage}
+                      onToggleFavorite={handleToggleFavorite}
+                      onUpdateTitle={handleUpdateTitle}
+                      onForward={setForwardingReminder}
+                      onToggleReaction={handleToggleReaction}
+                      onUpvote={handleToggleVote}
+                    />
+                  )}
+                  // Checking from the big card moves you to the next unchecked one; the list never reorders
+                  onDone={(id) => {
+                    const r = exploreBatch.find(x => x.id === id);
+                    handleTogglePopularCheck(id);
+                    if (r && !r.checkedOut) {
+                      const i = exploreBatch.indexOf(r);
+                      const next = [...exploreBatch.slice(i + 1), ...exploreBatch.slice(0, i)].find(x => !x.checkedOut);
+                      if (next && (exploreHeroId === id || !exploreHeroId || exploreBatch.find(x => x.id === exploreHeroId)?.id === id)) setExploreHeroId(next.id);
+                    }
+                  }}
+                  onLater={() => {}}
+                  requestsBanner={null}
+                  sortControl={null}
+                  doneToday={0}
+                  week={[]}
+                  streak={0}
+                  onExplore={() => {}}
+                  footer={
+                    exploreBatch.length === 0 && exploreFresh.length === 0 ? (
+                      <div className="text-center pt-14 px-6">
+                        <div className="text-5xl mb-3" aria-hidden="true">🌟</div>
+                        <p className="text-lg text-stone-800">You've seen it all!</p>
+                        <p className="text-sm text-stone-500 mt-1">Come back later to see more cool stuff.</p>
+                      </div>
+                    ) : exploreBatch.length === 0 ? (
+                      <p className="text-center text-sm text-stone-500 pt-10">Dealing your first 10…</p>
+                    ) : exploreAllChecked ? (
+                      exploreFresh.length > 0 ? (
+                        <button onClick={() => { setExploreHeroId(null); handleExploreMore(); }} className="mt-5 w-full h-12 rounded-2xl bg-brand-600 text-white active:bg-brand-700">
+                          Show me 10 more
+                        </button>
+                      ) : (
+                        <p className="mt-6 text-center text-sm text-stone-500">You've seen it all! Come back later to see more cool stuff.</p>
+                      )
+                    ) : (
+                      <p className="mt-4 text-center text-xs text-stone-500">Check all {exploreBatch.length} to get 10 more. Anything you favorite stays.</p>
+                    )
+                  }
+                />
               ) : (
+              <>
               <ReminderList
                 reminders={popularSubTab === 'top' ? topReminders : nudgeStates ? exploreBatch : exploreReminders.map(asPopular)}
                 anyoneCanCheck
@@ -2312,21 +2362,7 @@ export default function App() {
                     : 'Dealing your first 10…'
                 }
               />
-              )}
-
-              {popularSubTab === 'explore' && nudgeStates && exploreAllChecked && (
-                exploreFresh.length > 0 ? (
-                  <button
-                    onClick={handleExploreMore}
-                    className="mt-4 w-full h-12 rounded-xl bg-brand-600 text-white active:bg-brand-700"
-                  >
-                    Show me 10 more
-                  </button>
-                ) : (
-                  <p className="mt-6 text-center text-sm text-stone-500">
-                    You've seen it all! Come back later to see more cool stuff.
-                  </p>
-                )
+              </>
               )}
             </div>
           ) : mobileTab === 'people' ? (

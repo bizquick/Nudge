@@ -1,11 +1,14 @@
-import { Globe, Music, Video, Type as TypeIcon, Sparkles, UtensilsCrossed, Lightbulb, ExternalLink, Check, MessageCircle, Send, Archive, Star, SmilePlus, Pencil, Forward, Heart, Globe2, FolderInput, BellOff, ListChecks, FileText } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { Globe, Music, Video, Type as TypeIcon, Sparkles, UtensilsCrossed, Lightbulb, ExternalLink, Check, MessageCircle, Send, Archive, Star, SmilePlus, Pencil, Forward, Heart, Globe2, FolderInput, BellOff, ListChecks, FileText, ImagePlus, Loader2, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import type { Reminder, Message } from '../App';
 import type { Folder } from './FolderBar';
 import { Avatar, ProfileLink } from './Avatar';
 import { CATEGORY_LABELS } from './SortMenu';
 import { PhotoViewer } from './PhotoViewer';
 import { TodoEditor } from './TodoEditor';
+import { guessCategory } from '../utils/guessCategory';
+import { uploadAttachment } from '../utils/upload';
+import type { Attachment } from '../App';
 
 // lucide-react doesn't have a literal money-bag glyph, so this renders the
 // emoji instead, matching the one used in the send/compose screen.
@@ -28,7 +31,7 @@ interface ReminderCardProps {
   onUpdateTitle: (id: string, title: string) => void;
   onForward: (reminder: Reminder) => void;
   onUpvote?: (id: string) => void;
-  onAddMessage: (reminderId: string, text: string) => void;
+  onAddMessage: (reminderId: string, text: string, attachments?: Attachment[]) => void;
   onToggleReaction: (reminderId: string, emoji: string) => void;
   isSelected: boolean;
   onSelect: (id: string) => void;
@@ -57,6 +60,8 @@ interface ReminderCardProps {
   openMessages?: boolean;
   /** Everyone who has checked this nudge (each person's check is their own) */
   checkedBy?: string[];
+  /** Shown under the big "Up next" card: only what that card doesn't already show */
+  compact?: boolean;
 }
 
 // "Today 6:45 PM", "Yesterday 9:02 AM", "Sep 3, 6:45 PM", "Sep 3, 2025, 6:45 PM"
@@ -118,7 +123,8 @@ export function ReminderCard({
   pendingRecipients,
   onWithdraw,
   openMessages,
-  checkedBy
+  checkedBy,
+  compact
 }: ReminderCardProps) {
   const todos = reminder.todoItems;
   const todosDone = todos ? todos.filter(t => t.done).length : 0;
@@ -172,7 +178,26 @@ export function ReminderCard({
       <span className="text-xs">{reminder.voters.length}</span>
     </button>
   );
-  const [showMessages, setShowMessages] = useState(false);
+  const [showMessages, setShowMessages] = useState(!!compact);
+  // Photos in the conversation: ones waiting to send, and the full-screen viewer
+  const [msgPhotos, setMsgPhotos] = useState<Attachment[]>([]);
+  const [msgUploading, setMsgUploading] = useState(0);
+  const [msgViewer, setMsgViewer] = useState<{ photos: string[]; index: number } | null>(null);
+  const msgFileRef = useRef<HTMLInputElement>(null);
+  const addMessagePhotos = (files: File[]) => {
+    files.filter(f => f.type.startsWith('image/')).slice(0, 6).forEach(async f => {
+      setMsgUploading(n => n + 1);
+      try {
+        const a = await uploadAttachment(f, currentUser);
+        setMsgPhotos(prev => [...prev, a]);
+      } catch (err) {
+        console.error(err);
+        alert("Couldn't add that photo. Try a smaller one.");
+      } finally {
+        setMsgUploading(n => n - 1);
+      }
+    });
+  };
   useEffect(() => { if (openMessages && isSelected) setShowMessages(true); }, [openMessages, isSelected]);
   const [newMessage, setNewMessage] = useState('');
   const [showReactionPicker, setShowReactionPicker] = useState(false);
@@ -201,7 +226,9 @@ export function ReminderCard({
     lifehack: 'bg-amber-100 text-amber-600'
   };
 
-  const Icon = reminder.type ? icons[reminder.type] : null;
+  // No category picked? Show the one the content most looks like
+  const effectiveType = reminder.type ?? (todos ? null : guessCategory({ url: reminder.url, title: reminder.title, content: reminder.content, attachments: reminder.attachments }));
+  const Icon = effectiveType ? icons[effectiveType] : null;
   
   const formatDate = (date: Date) => {
     const now = new Date();
@@ -222,9 +249,11 @@ export function ReminderCard({
 
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
-    if (newMessage.trim()) {
-      onAddMessage(reminder.id, newMessage);
+    if (msgUploading) return;
+    if (newMessage.trim() || msgPhotos.length) {
+      onAddMessage(reminder.id, newMessage.trim(), msgPhotos);
       setNewMessage('');
+      setMsgPhotos([]);
     }
   };
 
@@ -256,7 +285,7 @@ export function ReminderCard({
   return (
     // Selected = the card's own border turns orange (not an outer ring, which
     // neighboring elements and the scroll area's edges could cover up)
-    <div className={`${rich ? 'rounded-2xl' : 'rounded-xl'} shadow-sm border-2 transition-all ${
+    <div className={compact ? 'border-t border-stone-200' : `${rich ? 'rounded-2xl' : 'rounded-xl'} shadow-sm border-2 transition-all ${
       isSelected
         ? 'border-brand-400'
         : rich && reminder.prioritizedAt && !reminder.checkedOut
@@ -269,6 +298,28 @@ export function ReminderCard({
               ? 'border-sky-200'
               : 'border-stone-200 hover:border-stone-300'
     } ${reminder.checkedOut ? 'bg-green-100' : fromMe ? 'bg-gold-50' : sentByMe ? 'bg-sky-50' : 'bg-white'}`}>
+      {compact ? (
+        // Under the big card: just what it doesn't show (more photos, files, who's checked)
+        <div className="px-4 pt-3 empty:hidden" onClick={(e) => e.stopPropagation()}>
+          {photos.length > 1 && (
+            <div className="mb-3 grid grid-cols-3 gap-1.5">
+              {photos.slice(1).map((src, i) => (
+                <button key={src} type="button" onClick={() => setViewerIndex(i + 1)} className="aspect-square overflow-hidden rounded-xl bg-stone-100" aria-label={`View photo ${i + 2}`}>
+                  <img src={src} alt="" className="w-full h-full object-cover" />
+                </button>
+              ))}
+            </div>
+          )}
+          {files.map(f => (
+            <a key={f.url} href={f.url} target="_blank" rel="noopener noreferrer" className="mb-2 flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-stone-200 bg-white text-sm text-stone-700">
+              <FileText className="w-5 h-5 text-stone-500 shrink-0" />
+              <span className="truncate flex-1">{f.name}</span>
+              <ExternalLink className="w-4 h-4 text-stone-400 shrink-0" />
+            </a>
+          ))}
+          {viewerIndex !== null && <PhotoViewer photos={photos} startIndex={viewerIndex} onClose={() => setViewerIndex(null)} />}
+        </div>
+      ) : (<>
       {dragHandleProps && !rich && (
         <div
           {...dragHandleProps}
@@ -304,13 +355,13 @@ export function ReminderCard({
           <div className="flex items-center gap-3">
             {/* Big tile: the link's preview image, or the category / to-do icon */}
             <div className={`relative w-[52px] h-[52px] rounded-xl shrink-0 overflow-hidden flex items-center justify-center ${
-              reminder.previewImage ? '' : todos ? 'bg-stone-100 text-stone-600' : Icon && reminder.type ? colors[reminder.type] : 'bg-stone-100 text-stone-500'
+              reminder.previewImage ? '' : todos ? 'bg-stone-100 text-stone-600' : Icon && effectiveType ? colors[effectiveType] : 'bg-stone-100 text-stone-500'
             }`}>
               {reminder.previewImage ? (
                 <img src={reminder.previewImage} alt="" className="w-full h-full object-cover" />
               ) : todos ? (
                 <ListChecks className="w-6 h-6" />
-              ) : Icon && reminder.type ? (
+              ) : Icon && effectiveType ? (
                 <Icon className="w-6 h-6" />
               ) : (
                 <MessageCircle className="w-6 h-6" />
@@ -328,7 +379,7 @@ export function ReminderCard({
                 <span className="truncate">
                   {[
                     isGroup && reminder.groupName ? reminder.groupName : reminder.sender === currentUser ? 'You' : reminder.sender,
-                    todos ? `To-do ${todosDone}/${todos.length}` : reminder.url ? domainOf(reminder.url) : reminder.type ? CATEGORY_LABELS[reminder.type] : null,
+                    todos ? `To-do ${todosDone}/${todos.length}` : reminder.url ? domainOf(reminder.url) : effectiveType ? CATEGORY_LABELS[effectiveType] : null,
                     todos && !reminder.checkedOut && reminder.completedBy.length > 0
                       ? (iCompleted ? 'Waiting on others'
                         : reminder.completedBy.length === 1 ? `${reminder.completedBy[0]} completed` : `${reminder.completedBy.length} of ${everyone.length} completed`)
@@ -344,8 +395,8 @@ export function ReminderCard({
           <div className={`flex items-center gap-3 ${flipped ? 'flex-row-reverse' : ''}`}>
             {reminder.previewImage ? (
               <img src={reminder.previewImage} alt="" className="rounded-lg object-cover shrink-0 border border-stone-200" style={{ width: '32px', height: '32px' }} />
-            ) : Icon && reminder.type ? (
-              <div className={`p-2 rounded-lg shrink-0 ${colors[reminder.type]}`}>
+            ) : Icon && effectiveType ? (
+              <div className={`p-2 rounded-lg shrink-0 ${colors[effectiveType!]}`}>
                 <Icon className="w-4 h-4" />
               </div>
             ) : null}
@@ -413,8 +464,8 @@ export function ReminderCard({
                 <Check className="w-5 h-5" />
               </button>}
 
-              {Icon && reminder.type && (
-                <div className={`p-2 sm:p-3 rounded-lg shrink-0 ${colors[reminder.type]}`}>
+              {Icon && effectiveType && (
+                <div className={`p-2 sm:p-3 rounded-lg shrink-0 ${colors[effectiveType]}`}>
                   <Icon className="w-5 h-5" />
                 </div>
               )}
@@ -453,14 +504,27 @@ export function ReminderCard({
               )}
             </div>
 
-            {/* The link's own preview picture (small) — attached photos show big below */}
-            {reminder.previewImage && !photos.includes(reminder.previewImage) && (
-              <img
-                src={reminder.previewImage}
-                alt=""
-                className="rounded-lg object-cover mb-3 border border-stone-200"
-                style={{ width: '64px', height: '64px' }}
-              />
+            {/* The link, as a preview you can tap (like links in Messages) */}
+            {reminder.url && (
+              <a
+                href={reminder.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="mb-3 -mx-1 block rounded-xl overflow-hidden border border-stone-200 bg-white active:bg-stone-50"
+              >
+                {reminder.previewImage && !photos.includes(reminder.previewImage) && (
+                  <img src={reminder.previewImage} alt="" className="w-full h-40 object-cover bg-stone-100" />
+                )}
+                <span className="flex items-center gap-2 px-3 py-2.5">
+                  <Globe className="w-4 h-4 text-stone-400 shrink-0" />
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-[13px] text-stone-800 truncate">{reminder.title || domainOf(reminder.url)}</span>
+                    <span className="block text-[11px] text-stone-500 truncate">{domainOf(reminder.url) ?? reminder.url}</span>
+                  </span>
+                  <ExternalLink className="w-4 h-4 text-brand-600 shrink-0" />
+                </span>
+              </a>
             )}
 
             {photos.length > 0 && (
@@ -577,9 +641,9 @@ export function ReminderCard({
                 onToggle={(i) => onToggleTodo?.(reminder.id, i)}
                 onEdit={onTodoEdit ? (op, itemId, text) => onTodoEdit(reminder.id, op, itemId, text) : undefined}
               />
-            ) : (
+            ) : reminder.content ? (
               <p className="text-stone-700 mb-3">{reminder.content}</p>
-            )}
+            ) : null}
 
             {/* One Complete button per person. Yours you can tap; the others show whether
                 that person has completed it. It moves to Checked once everyone has. */}
@@ -614,22 +678,10 @@ export function ReminderCard({
               </div>
             )}
 
-            {/* URL Link */}
-            {reminder.url && (
-              <a
-                href={reminder.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-sm text-brand-600 hover:text-brand-700 mb-3"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <ExternalLink className="w-4 h-4" />
-                Open link
-              </a>
-            )}
           </>
         )}
       </div>
+      </>)}
 
       {/* Messages Section - Only show when expanded */}
       {isSelected && (
@@ -683,14 +735,30 @@ export function ReminderCard({
                               <Avatar name={message.sender} size={26} profile />
                             </span>
                           )}
-                          <div
-                            className={`min-w-0 px-3.5 py-2 text-sm rounded-2xl break-words ${
-                              mine
-                                ? 'bg-blue-500 text-white rounded-br-md'
-                                : 'bg-white text-stone-900 border border-stone-200 rounded-bl-md'
-                            }`}
-                          >
-                            {message.text}
+                          <div className={`min-w-0 flex flex-col gap-1 ${mine ? 'items-end' : 'items-start'}`}>
+                            {message.attachments.filter(a => a.type.startsWith('image/')).length > 0 && (() => {
+                              const pics = message.attachments.filter(a => a.type.startsWith('image/')).map(a => a.url);
+                              return (
+                                <div className={`grid gap-1 ${pics.length > 1 ? 'grid-cols-2' : ''}`}>
+                                  {pics.map((src, pi) => (
+                                    <button key={src} type="button" onClick={() => setMsgViewer({ photos: pics, index: pi })} aria-label="View photo">
+                                      <img src={src} alt="" className={`rounded-2xl object-cover bg-stone-100 ${pics.length > 1 ? 'w-28 h-28' : 'max-w-[220px] max-h-[260px]'}`} />
+                                    </button>
+                                  ))}
+                                </div>
+                              );
+                            })()}
+                            {message.text && (
+                              <div
+                                className={`min-w-0 px-3.5 py-2 text-sm rounded-2xl break-words ${
+                                  mine
+                                    ? 'bg-blue-500 text-white rounded-br-md'
+                                    : 'bg-white text-stone-900 border border-stone-200 rounded-bl-md'
+                                }`}
+                              >
+                                {message.text}
+                              </div>
+                            )}
                           </div>
                         </div>
                         <span className={`mt-0.5 px-1 text-[11px] text-stone-400 ${showWho ? 'ml-8' : ''}`}>
@@ -702,18 +770,57 @@ export function ReminderCard({
                 </div>
               )}
 
+              {msgViewer && <PhotoViewer photos={msgViewer.photos} startIndex={msgViewer.index} onClose={() => setMsgViewer(null)} />}
+              {/* Photos waiting to be sent with the next message */}
+              {(msgPhotos.length > 0 || msgUploading > 0) && (
+                <div className="mb-2 pt-1.5 flex gap-2 overflow-x-auto">
+                  {msgPhotos.map((a, i) => (
+                    <div key={a.url} className="relative shrink-0">
+                      <img src={a.url} alt="" className="w-16 h-16 rounded-xl object-cover" />
+                      <button type="button" onClick={() => setMsgPhotos(prev => prev.filter((_, j) => j !== i))} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-stone-800 text-white flex items-center justify-center" aria-label="Remove photo">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                  {Array.from({ length: msgUploading }, (_, i) => (
+                    <div key={'u' + i} className="w-16 h-16 shrink-0 rounded-xl border border-dashed border-stone-300 flex items-center justify-center">
+                      <Loader2 className="w-4 h-4 text-stone-400 animate-spin" />
+                    </div>
+                  ))}
+                </div>
+              )}
               {/* Message Input */}
               <form onSubmit={handleSendMessage} className="flex gap-2">
+                <input
+                  ref={msgFileRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => { addMessagePhotos(Array.from(e.target.files ?? [])); e.target.value = ''; }}
+                />
+                <button
+                  type="button"
+                  onClick={() => msgFileRef.current?.click()}
+                  className="px-2.5 py-2 rounded-lg border border-stone-300 bg-white text-stone-600 active:bg-stone-100"
+                  aria-label="Add a photo"
+                >
+                  <ImagePlus className="w-4 h-4" />
+                </button>
                 <input
                   type="text"
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
+                  onPaste={(e) => {
+                    const pasted = Array.from(e.clipboardData?.files ?? []);
+                    if (pasted.length) { e.preventDefault(); addMessagePhotos(pasted); }
+                  }}
                   placeholder="Type a message..."
-                  className="flex-1 px-3 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm"
+                  className="flex-1 min-w-0 px-3 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm"
                 />
                 <button
                   type="submit"
-                  disabled={!newMessage.trim()}
+                  disabled={(!newMessage.trim() && !msgPhotos.length) || msgUploading > 0}
                   className="px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   <Send className="w-4 h-4" />

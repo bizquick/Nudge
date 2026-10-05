@@ -5,15 +5,15 @@ import type { Reminder, ReminderType } from '../App';
 import { Avatar, ProfileLink } from './Avatar';
 import { CATEGORY_LABELS } from './SortMenu';
 import { PhotoViewer } from './PhotoViewer';
+import { guessCategory } from '../utils/guessCategory';
+
+// The category to show: the sender's pick, or the app's best guess from the content
+const categoryOf = (r: Reminder): ReminderType | null =>
+  r.type ?? (r.todoItems ? null : guessCategory({ url: r.url, title: r.title, content: r.content, attachments: r.attachments }));
 
 // Home as a queue: one big "Up next" nudge to deal with, then a simple list of
 // what's after it. Done checks it off; Later sends it to the back of the line.
 
-// One color per category, used for the little dots in the list
-const CATEGORY_DOT: Record<ReminderType, string> = {
-  website: '#378ADD', music: '#7F77DD', video: '#E24B4A', text: '#888780',
-  unnecessary: '#D4537E', interesting: '#1D9E75', food: '#639922', lifehack: '#EF9F27',
-};
 const CATEGORY_TILE: Record<ReminderType, string> = {
   website: 'bg-blue-50 text-blue-600', music: 'bg-purple-50 text-purple-600', video: 'bg-red-50 text-red-600',
   text: 'bg-stone-100 text-stone-600', unnecessary: 'bg-pink-50 text-pink-600', interesting: 'bg-teal-50 text-teal-600',
@@ -44,10 +44,17 @@ interface HomeQueueProps {
   hasNewMessage: (id: string) => boolean;
   expandedId: string | null;
   onExpand: (id: string | null) => void;
-  /** The full nudge (messages, reactions, everything), shown when opened */
-  renderFull: (r: Reminder) => ReactNode;
+  /** The full nudge (messages, reactions, everything), shown when opened. compact = only
+      what the big card doesn't already show. */
+  renderFull: (r: Reminder, compact?: boolean) => ReactNode;
   onDone: (id: string) => void;
   onLater: (id: string) => void;
+  /** Explore: nothing moves when you check things; you pick which one is the big card */
+  mode?: 'home' | 'explore';
+  heroId?: string | null;
+  onSelect?: (id: string) => void;
+  /** Explore: shown under the list (progress, "Show me 10 more") */
+  footer?: ReactNode;
   /** Slim banner for nudge requests (or null) */
   requestsBanner: ReactNode;
   sortControl: ReactNode;
@@ -60,10 +67,15 @@ interface HomeQueueProps {
 
 export function HomeQueue(props: HomeQueueProps) {
   const { queue, withNewMessages, expandedId, onExpand, renderFull, requestsBanner } = props;
-  const upNext = queue.find(r => !r.todoItems);
+  const explore = props.mode === 'explore';
+  // Home: the first regular nudge waiting. Explore: whichever one you've picked.
+  const upNext = explore
+    ? (queue.find(r => r.id === props.heroId) ?? queue.find(r => !r.checkedOut) ?? queue[0])
+    : queue.find(r => !r.todoItems);
   const rest = [...withNewMessages, ...queue.filter(r => r !== upNext)];
 
   if (!upNext && rest.length === 0) {
+    if (explore) return <>{props.footer}</>;
     return (
       <>
         {requestsBanner}
@@ -82,9 +94,9 @@ export function HomeQueue(props: HomeQueueProps) {
           {...props}
           open={expandedId === upNext.id}
           onToggleOpen={() => onExpand(expandedId === upNext.id ? null : upNext.id)}
+          details={expandedId === upNext.id ? renderFull(upNext, true) : null}
         />
       )}
-      {upNext && expandedId === upNext.id && <div className="mt-2">{renderFull(upNext)}</div>}
 
       {rest.length > 0 && (
         <>
@@ -93,31 +105,52 @@ export function HomeQueue(props: HomeQueueProps) {
             {props.sortControl}
           </div>
           <div className="border-t border-stone-200/80">
-            {rest.map(r => expandedId === r.id ? (
+            {rest.map(r => !explore && expandedId === r.id ? (
               <div key={r.id} className="py-2 border-b border-stone-200/80">{renderFull(r)}</div>
             ) : (
-              <QueueRow key={r.id} reminder={r} {...props} onOpen={() => onExpand(r.id)} />
+              <QueueRow
+                key={r.id}
+                reminder={r}
+                {...props}
+                // Explore: tapping a row makes it the big card (nothing gets reordered)
+                onOpen={() => (explore ? props.onSelect?.(r.id) : onExpand(r.id))}
+              />
             ))}
           </div>
-          <p className="mt-2 text-[11px] text-stone-400">Swipe right to mark done · left for later</p>
+          <p className="mt-2 text-[11px] text-stone-400">
+            {explore ? 'Tap one to open it up top · swipe right to check it' : 'Swipe right to mark done · left for later'}
+          </p>
         </>
       )}
+      {props.footer}
     </div>
   );
 }
 
-function UpNextCard({ reminder: r, currentUser, onDone, onLater, messageCount, open, onToggleOpen }: HomeQueueProps & { reminder: Reminder; open: boolean; onToggleOpen: () => void }) {
+function UpNextCard({ reminder: r, currentUser, onDone, onLater, messageCount, open, onToggleOpen, details, mode, queue, onSelect }: HomeQueueProps & { reminder: Reminder; open: boolean; onToggleOpen: () => void; details: ReactNode }) {
+  const explore = mode === 'explore';
+  const type = categoryOf(r);
   const [leaving, setLeaving] = useState<'done' | 'later' | null>(null);
   const [viewer, setViewer] = useState<number | null>(null);
   const photos = r.attachments.filter(a => a.type.startsWith('image/')).map(a => a.url);
   const picture = photos[0] ?? r.previewImage;
-  const Icon = r.type ? CATEGORY_ICON[r.type] : MessageCircle;
+  const Icon = type ? CATEGORY_ICON[type] : MessageCircle;
   const msgs = messageCount(r.id);
   const who = r.sender === currentUser ? 'You' : r.sender;
 
   // Slide away, then actually check it (or move it back) so the next one rises in
   const finish = (how: 'done' | 'later') => {
     haptic();
+    // Explore never moves anything: checking just checks it (and "Next" picks the next one)
+    if (explore) {
+      if (how === 'done') onDone(r.id);
+      else {
+        const i = queue.indexOf(r);
+        const next = queue.slice(i + 1).find(x => !x.checkedOut) ?? queue.find(x => !x.checkedOut && x !== r) ?? queue[(i + 1) % queue.length];
+        if (next) onSelect?.(next.id);
+      }
+      return;
+    }
     setLeaving(how);
     setTimeout(() => (how === 'done' ? onDone(r.id) : onLater(r.id)), 230);
   };
@@ -143,7 +176,7 @@ function UpNextCard({ reminder: r, currentUser, onDone, onLater, messageCount, o
           <img src={picture} alt="" className="w-full h-44 object-cover bg-stone-100" />
         )
       ) : (
-        <div className={`h-28 flex items-center justify-center ${r.type ? CATEGORY_TILE[r.type] : 'bg-stone-100 text-stone-500'}`}>
+        <div className={`h-28 flex items-center justify-center ${type ? CATEGORY_TILE[type] : 'bg-stone-100 text-stone-500'}`}>
           <Icon className="w-8 h-8" />
         </div>
       )}
@@ -155,7 +188,7 @@ function UpNextCard({ reminder: r, currentUser, onDone, onLater, messageCount, o
           <span className="truncate">
             {who === 'You' ? 'You' : <ProfileLink name={r.sender}>{who}</ProfileLink>}
             {' · '}{ago(r.createdAt)}
-            {r.type ? ` · ${CATEGORY_LABELS[r.type]}` : ''}
+            {type ? ` · ${CATEGORY_LABELS[type]}` : ''}
             {r.groupName ? ` · ${r.groupName}` : ''}
           </span>
           {r.prioritizedAt && <span title="Priority">🤯</span>}
@@ -174,44 +207,54 @@ function UpNextCard({ reminder: r, currentUser, onDone, onLater, messageCount, o
             onClick={() => finish('later')}
             className="flex-1 h-12 rounded-2xl border border-stone-300 text-stone-700 flex items-center justify-center gap-1.5 active:bg-stone-100"
           >
-            <Clock className="w-4 h-4" /> Later
+            {explore ? <>Next <ChevronDown className="w-4 h-4 -rotate-90" /></> : <><Clock className="w-4 h-4" /> Later</>}
           </button>
           <button
             type="button"
             onClick={() => finish('done')}
-            className="flex-[2] h-12 rounded-2xl bg-brand-600 text-white flex items-center justify-center gap-1.5 active:bg-brand-700"
+            className={`flex-[2] h-12 rounded-2xl flex items-center justify-center gap-1.5 ${
+              explore && r.checkedOut ? 'bg-green-100 text-green-800 border border-green-300' : 'bg-brand-600 text-white active:bg-brand-700'
+            }`}
           >
-            <Check className="w-5 h-5" /> Done
+            <Check className="w-5 h-5" /> {explore ? (r.checkedOut ? 'Checked' : 'Check') : 'Done'}
           </button>
         </div>
         <button type="button" onClick={onToggleOpen} className="mt-2.5 w-full flex items-center justify-center gap-1 text-[12px] text-stone-500">
-          {open ? 'Hide details' : msgs ? `Details · ${msgs} message${msgs === 1 ? '' : 's'}` : 'Details, messages, and more'}
+          {open ? 'Hide' : msgs ? `${msgs} message${msgs === 1 ? '' : 's'} · react · more` : 'Messages, reactions, and more'}
           <ChevronDown className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />
         </button>
       </div>
+      {/* Only what the card above doesn't already show: more photos, messages, reactions */}
+      {details}
     </div>
   );
 }
 
 // One line in the list: swipe right to mark done, left for later; tap to open it
-function QueueRow({ reminder: r, currentUser, onDone, onLater, hasNewMessage, onOpen }: HomeQueueProps & { reminder: Reminder; onOpen: () => void }) {
+function QueueRow({ reminder: r, currentUser, onDone, onLater, hasNewMessage, onOpen, mode }: HomeQueueProps & { reminder: Reminder; onOpen: () => void }) {
+  const explore = mode === 'explore';
+  const type = categoryOf(r);
+  const Icon = type ? CATEGORY_ICON[type] : MessageCircle;
   const todos = r.todoItems;
   const done = todos ? todos.filter(t => t.done).length : 0;
   const isNew = hasNewMessage(r.id);
-  const who = r.sender === currentUser ? (todos ? 'You' : 'You') : r.sender;
+  const who = r.sender === currentUser ? 'You' : r.sender;
   return (
     <SwipeToAct
       onRight={todos || isNew ? undefined : () => onDone(r.id)}
-      onLeft={isNew ? undefined : () => onLater(r.id)}
+      onLeft={isNew || explore ? undefined : () => onLater(r.id)}
+      stay={explore}
     >
       <button type="button" onClick={onOpen} className="w-full flex items-center gap-3 py-3 text-left bg-[#FBF6EC]">
-        {todos ? (
-          <ListChecks className="w-4 h-4 text-stone-500 shrink-0" />
+        {explore && r.checkedOut ? (
+          <span className="w-8 h-8 rounded-lg shrink-0 flex items-center justify-center bg-green-100 text-green-700"><Check className="w-4 h-4" /></span>
         ) : (
-          <span className="w-2.5 h-2.5 rounded-full shrink-0 ml-[3px] mr-[3px]" style={{ background: r.type ? CATEGORY_DOT[r.type] : '#B4B2A9' }} />
+          <span className={`w-8 h-8 rounded-lg shrink-0 flex items-center justify-center ${todos ? 'bg-stone-100 text-stone-600' : type ? CATEGORY_TILE[type] : 'bg-stone-100 text-stone-500'}`}>
+            {todos ? <ListChecks className="w-4 h-4" /> : <Icon className="w-4 h-4" />}
+          </span>
         )}
         <span className="flex-1 min-w-0">
-          <span className="block truncate text-[15px] text-stone-900">
+          <span className={`block truncate text-[15px] ${explore && r.checkedOut ? 'text-stone-500' : 'text-stone-900'}`}>
             {r.prioritizedAt && <span className="mr-1">🤯</span>}
             {r.title}
           </span>
@@ -230,7 +273,7 @@ function QueueRow({ reminder: r, currentUser, onDone, onLater, hasNewMessage, on
 }
 
 // Sideways swipe on a row, like Mail: past the halfway mark it acts on release
-function SwipeToAct({ onRight, onLeft, children }: { onRight?: () => void; onLeft?: () => void; children: ReactNode }) {
+function SwipeToAct({ onRight, onLeft, stay, children }: { onRight?: () => void; onLeft?: () => void; stay?: boolean; children: ReactNode }) {
   const [dx, setDx] = useState(0);
   const [gone, setGone] = useState<'right' | 'left' | null>(null);
   const start = useRef<{ x: number; y: number; swiping: boolean } | null>(null);
@@ -269,7 +312,8 @@ function SwipeToAct({ onRight, onLeft, children }: { onRight?: () => void; onLef
           if (!s?.swiping) return;
           swallow.current = true;
           setTimeout(() => { swallow.current = false; }, 300);
-          if (dx > THRESHOLD && onRight) { haptic(); setGone('right'); setTimeout(onRight, 200); }
+          if (dx > THRESHOLD && onRight && stay) { haptic(); onRight(); }
+          else if (dx > THRESHOLD && onRight) { haptic(); setGone('right'); setTimeout(onRight, 200); }
           else if (dx < -THRESHOLD && onLeft) { haptic(); setGone('left'); setTimeout(onLeft, 200); }
           setDx(0);
         }}
