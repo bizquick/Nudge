@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Send with Addly</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <img src="icons/wordmark.png" alt="Addly" class="wordmark">
+  </header>
+
+  <!-- Signed out: sign in once with your Addly account -->
+  <section id="signin" hidden>
+    <p class="lead">Sign in with your Addly account to send pages to friends.</p>
+    <form id="signin-form">
+      <input id="email" type="email" placeholder="Email" autocomplete="username" required>
+      <input id="password" type="password" placeholder="Password" autocomplete="current-password" required>
+      <button type="submit" class="primary" id="signin-button">Sign in</button>
+      <p class="error" id="signin-error" hidden></p>
+    </form>
+    <p class="fine">Your password goes only to Addly. This add-on keeps a private send-key, never your password.</p>
+  </section>
+
+  <!-- Signed in: the page, a note, who to send it to -->
+  <section id="send" hidden>
+    <div class="preview">
+      <div class="thumb" id="thumb"><img id="thumb-img" alt="" hidden></div>
+      <div class="meta">
+        <p class="title" id="page-title">This page</p>
+        <p class="host" id="page-host"></p>
+      </div>
+    </div>
+    <textarea id="note" rows="2" placeholder="Add a note (optional)"></textarea>
+
+    <p class="label">Send to</p>
+    <input id="search" type="search" placeholder="Search friends" hidden>
+    <div class="people" id="people"></div>
+
+    <button class="primary" id="send-button" disabled>Send</button>
+    <p class="error" id="send-error" hidden></p>
+    <p class="fine footer">Signed in as <span id="me"></span> · <a href="#" id="signout">Sign out</a> · <a href="#" id="refresh">Refresh friends</a></p>
+  </section>
+
+  <!-- Sent -->
+  <section id="sent" hidden>
+    <div class="done-mark">✓</div>
+    <p class="done-text">Nudge sent!</p>
+  </section>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

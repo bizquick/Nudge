@@ -47,7 +47,9 @@ export async function syncShareMenu(me: string, contacts: string[]) {
 export async function clearShareMenu() {
   if (!Capacitor.isNativePlatform()) return;
   lastSent = '';
-  try { localStorage.removeItem(KEY_STORAGE); } catch { /* storage unavailable */ }
-  try { await supabase.rpc('revoke_share_keys'); } catch { /* offline: the key stays unusable once signed out */ }
+  let saved: { key: string } | null = null;
+  try { saved = JSON.parse(localStorage.getItem(KEY_STORAGE) || 'null'); localStorage.removeItem(KEY_STORAGE); } catch { /* storage unavailable */ }
+  // Only this phone's key (the Chrome add-on keeps its own)
+  if (saved?.key) { try { await supabase.rpc('revoke_share_key', { p_key: saved.key }); } catch { /* offline */ } }
   try { await SharedStore.clear(); } catch { /* not available */ }
 }

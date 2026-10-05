@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "chrome-extension-preview",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "/Users/brandonchirco/Desktop/Nudge-main/chrome-extension", "--port", "5179", "--strictPort"],
+      "port": 5179
+    }
+  ]
+}
