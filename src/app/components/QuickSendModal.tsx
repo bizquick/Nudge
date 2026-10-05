@@ -3,6 +3,7 @@ import { Globe, Music, Video, Type as TypeIcon, Sparkles, UtensilsCrossed, Light
 import type { ReminderType, NewNudge, Attachment } from '../App';
 import { supabase } from '../utils/supabase/client';
 import { guessCategory } from '../utils/guessCategory';
+import { shrinkForUpload } from '../utils/upload';
 import { Avatar } from './Avatar';
 import nudgeLogo from '../../imports/image-3.png';
 
@@ -40,30 +41,6 @@ const MAX_ATTACHMENTS = 10;
 
 // People type links the short way ("nytimes.com"). Add the https:// for them
 // so the link opens and the title/preview lookup works.
-// Pasted photos arrive full-size (often as huge PNGs). Shrink to at most 2400px
-// on the long side and save as a JPEG so they upload quickly and fit the 15MB limit.
-async function toUploadableImage(blob: Blob): Promise<File> {
-  const bitmapUrl = URL.createObjectURL(blob);
-  try {
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const el = new Image();
-      el.onload = () => resolve(el);
-      el.onerror = reject;
-      el.src = bitmapUrl;
-    });
-    const scale = Math.min(1, 2400 / Math.max(img.naturalWidth, img.naturalHeight));
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.round(img.naturalWidth * scale);
-    canvas.height = Math.round(img.naturalHeight * scale);
-    canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height);
-    const jpeg = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.85));
-    if (!jpeg) throw new Error('could not encode');
-    return new File([jpeg], `Pasted photo ${new Date().toLocaleDateString().replace(/\//g, '-')}.jpg`, { type: 'image/jpeg' });
-  } finally {
-    URL.revokeObjectURL(bitmapUrl);
-  }
-}
-
 function normalizeUrl(raw: string): string {
   const u = raw.trim();
   if (!u) return '';
@@ -90,8 +67,9 @@ export function QuickSendModal({ recipient, knownRecipients, knownGroups = [], c
   const [submitting, setSubmitting] = useState(false);
   // Photos and files: several allowed, and they sit alongside the link (never replace it)
   const [attachments, setAttachments] = useState<Attachment[]>(initialValues?.attachments ?? []);
-  const [uploadingCount, setUploadingCount] = useState(0);
-  const uploading = uploadingCount > 0;
+  // Photos still uploading: shown right away (from the phone itself) with a spinner on top
+  const [pendingUploads, setPendingUploads] = useState<{ id: string; preview: string | null }[]>([]);
+  const uploading = pendingUploads.length > 0;
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -174,12 +152,7 @@ export function QuickSendModal({ recipient, knownRecipients, knownGroups = [], c
       .map(i => i.getAsFile())
       .filter((f): f is File => !!f);
   };
-  const attachPasted = async (file: File) => {
-    if (file.type.startsWith('image/') && file.size > 4 * 1024 * 1024) { uploadFile(await toUploadableImage(file)); return; }
-    // iPhone names every pasted picture "image.jpeg" — give it a friendlier name
-    const generic = /^image\.\w+$/i.test(file.name);
-    uploadFile(generic ? new File([file], `Pasted photo.${file.name.split('.').pop()}`, { type: file.type }) : file);
-  };
+  const attachPasted = (file: File) => { uploadFile(file); };
   const handlePaste = (e: React.ClipboardEvent) => {
     if (e.defaultPrevented || isTodo) return; // the link box already handled it
     const files = pastedFiles(e.clipboardData);
@@ -221,19 +194,31 @@ export function QuickSendModal({ recipient, knownRecipients, knownGroups = [], c
 
   const attachmentCount = useRef(attachments.length);
   attachmentCount.current = attachments.length;
-  const uploadFile = async (file: File) => {
-    if (file.size > 15 * 1024 * 1024) {
-      setUploadError('That file is too big — please keep it under 15MB.');
-      return;
-    }
+  const uploadFile = async (original: File) => {
     if (attachmentCount.current >= MAX_ATTACHMENTS) {
       setUploadError(`Up to ${MAX_ATTACHMENTS} photos or files per nudge.`);
       return;
     }
     attachmentCount.current += 1;
-
-    setUploadingCount(n => n + 1);
     setUploadError(null);
+
+    // Show it straight away; the upload carries on underneath
+    const id = Math.random().toString(36).slice(2);
+    const preview = original.type.startsWith('image/') ? URL.createObjectURL(original) : null;
+    setPendingUploads(prev => [...prev, { id, preview }]);
+    const done = () => {
+      setPendingUploads(prev => prev.filter(p => p.id !== id));
+      if (preview) setTimeout(() => URL.revokeObjectURL(preview), 2000);
+    };
+
+    // Photos are shrunk first (much smaller and faster to send, still sharp)
+    const file = await shrinkForUpload(original);
+    if (file.size > 15 * 1024 * 1024) {
+      setUploadError('That file is too big — please keep it under 15MB.');
+      attachmentCount.current -= 1;
+      done();
+      return;
+    }
 
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
     const path = `${currentUser}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${safeName}`;
@@ -243,13 +228,13 @@ export function QuickSendModal({ recipient, knownRecipients, knownGroups = [], c
       console.error(error);
       setUploadError("Couldn't upload that file — try again.");
       attachmentCount.current -= 1;
-      setUploadingCount(n => n - 1);
+      done();
       return;
     }
 
     const { data } = supabase.storage.from('nudge-uploads').getPublicUrl(path);
     setAttachments(prev => [...prev, { url: data.publicUrl, name: file.name, type: file.type || 'application/octet-stream' }]);
-    setUploadingCount(n => n - 1);
+    done();
   };
 
   const addRecipient = (name: string) => {
@@ -600,9 +585,12 @@ export function QuickSendModal({ recipient, knownRecipients, knownGroups = [], c
                     </button>
                   </div>
                 ))}
-                {Array.from({ length: uploadingCount }, (_, i) => (
-                  <div key={'up' + i} className="w-20 h-20 shrink-0 rounded-xl border border-dashed border-stone-300 flex items-center justify-center">
-                    <Loader2 className="w-5 h-5 text-stone-400 animate-spin" />
+                {pendingUploads.map(p => (
+                  <div key={p.id} className="relative w-20 h-20 shrink-0 rounded-xl overflow-hidden border border-stone-200 bg-stone-50 flex items-center justify-center">
+                    {p.preview && <img src={p.preview} alt="" className="absolute inset-0 w-full h-full object-cover opacity-70" />}
+                    <span className="relative w-8 h-8 rounded-full bg-white/85 flex items-center justify-center">
+                      <Loader2 className="w-4 h-4 text-brand-600 animate-spin" />
+                    </span>
                   </div>
                 ))}
               </div>
