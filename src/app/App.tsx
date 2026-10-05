@@ -8,10 +8,11 @@ import { Avatar, AvatarContext, ProfileContext, ProfileLink } from './components
 import { ProfileSheet } from './components/ProfileSheet';
 import { GroupInfoSheet } from './components/GroupInfoSheet';
 import { HomeQueue } from './components/HomeQueue';
+import { ChangePassword } from './components/ChangePassword';
 import { AvatarPicker } from './components/AvatarPicker';
 import { AuthScreen } from './components/AuthScreen';
 import { Insights } from './components/Insights';
-import { Send, Archive, LogOut, Share2, Inbox as InboxIcon, Users, User, ChevronLeft, ChevronDown, TrendingUp, Pencil, BellOff, Bell, Trash2, StarOff, CheckCheck, Star, BarChart3, ChevronRight, RefreshCw, Info } from 'lucide-react';
+import { Send, Archive, LogOut, Share2, Inbox as InboxIcon, Users, User, ChevronLeft, ChevronDown, TrendingUp, Pencil, BellOff, Bell, Trash2, StarOff, CheckCheck, Star, BarChart3, ChevronRight, RefreshCw, Info, KeyRound } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { ImageWithFallback } from './components/figma/ImageWithFallback';
 import nudgeLogo from '../imports/image-3.png';
@@ -411,6 +412,7 @@ export default function App() {
   // Whose profile card is open (tap anyone's picture or name)
   const [profileName, setProfileName] = useState<string | null>(null);
   const [showGroupInfo, setShowGroupInfo] = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState(false);
   // Favorites and Checked now live under the Nudges tab (Home is just your queue)
   const [savedView, setSavedView] = useState<'favorited' | 'archived' | null>(null);
   // Explore: which nudge is the big card up top (picking one never reorders anything)
@@ -2663,6 +2665,13 @@ export default function App() {
                 </button>
               )}
               <button
+                onClick={() => setShowChangePassword(true)}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-stone-200 text-stone-700 hover:bg-stone-50 transition-colors"
+              >
+                <KeyRound className="w-4 h-4" />
+                Change password
+              </button>
+              <button
                 onClick={handleSignOut}
                 className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-stone-200 text-stone-700 hover:bg-stone-50 transition-colors"
               >
@@ -2774,6 +2783,7 @@ export default function App() {
         />
       )}
       {showInsights && <Insights onClose={() => setShowInsights(false)} />}
+      {showChangePassword && <ChangePassword onClose={() => setShowChangePassword(false)} />}
       {showGroupInfo && selectedGroupKey && (
         <GroupInfoSheet
           title={selectedGroupMeta?.groupName || selectedGroupMeta?.participants.join(', ') || 'Group'}

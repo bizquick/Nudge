@@ -5,6 +5,15 @@ import nudgeLogo from '../../imports/image-3.png';
 import { supabase } from '../utils/supabase/client';
 
 // A password box with an eye button to show or hide what you've typed
+// Supabase sometimes reports an email-sending problem as "{}" — say something human instead
+function friendlyEmailError(message: string | undefined) {
+  if (!message || message === '{}' || /sending|smtp|unexpected/i.test(message)) {
+    return "We couldn't send the email right now. Please try again in a little while.";
+  }
+  if (/rate limit|too many/i.test(message)) return 'Too many tries. Wait a minute, then try again.';
+  return message;
+}
+
 function PasswordInput({ className, ...props }: React.InputHTMLAttributes<HTMLInputElement>) {
   const [visible, setVisible] = useState(false);
   return (
@@ -28,6 +37,8 @@ interface AuthScreenProps {
 }
 
 type Mode = 'signup' | 'login' | 'forgot' | 'reset' | 'forgotName';
+
+export { PasswordInput };
 
 export function AuthScreen({ onSignedIn }: AuthScreenProps) {
   const [mode, setMode] = useState<Mode>('signup');
@@ -174,7 +185,7 @@ export function AuthScreen({ onSignedIn }: AuthScreenProps) {
     const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim());
     setLoading(false);
     if (resetError) {
-      setError(resetError.message);
+      setError(friendlyEmailError(resetError.message));
       return;
     }
     switchMode('reset');
@@ -198,7 +209,7 @@ export function AuthScreen({ onSignedIn }: AuthScreenProps) {
     setLoading(false);
     // "No such account" is deliberately not revealed — same message either way
     if (sendError && !/not found|signups not allowed/i.test(sendError.message)) {
-      setError(sendError.message);
+      setError(friendlyEmailError(sendError.message));
       return;
     }
     switchMode('login');
