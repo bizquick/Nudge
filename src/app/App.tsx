@@ -18,6 +18,7 @@ import nudgeLogo from '../imports/image-3.png';
 import nIconTonal from '../imports/n-icon-tonal.png';
 import { supabase } from './utils/supabase/client';
 import { registerPush, unregisterPush, setBadge, type PushTarget } from './utils/push';
+import { syncShareMenu, clearShareMenu } from './utils/shareBridge';
 import { App as CapacitorApp } from '@capacitor/app';
 import { Share } from '@capacitor/share';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
@@ -479,6 +480,7 @@ export default function App() {
 
   const handleSignOut = async () => {
     await unregisterPush(); // before signing out, while we're still allowed to remove this phone's token
+    await clearShareMenu(); // the Share menu stops being able to send as you
     await supabase.auth.signOut();
     setCurrentUser(null);
     setReminders([]);
@@ -1677,6 +1679,22 @@ export default function App() {
       }
     }
   };
+
+  // The iPhone Share menu: your send-key and the people you nudge, most recent first
+  const shareContacts = (() => {
+    const seen: string[] = [];
+    [...allUserReminders].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).forEach(r => {
+      [r.sender, ...r.recipients].forEach(p => {
+        if (p && p !== currentUser && !blockedNames.has(p) && !seen.includes(p)) seen.push(p);
+      });
+    });
+    return seen;
+  })();
+  const shareContactsKey = shareContacts.join('|');
+  useEffect(() => {
+    if (currentUser && !dataLoading) syncShareMenu(currentUser, shareContacts);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser, dataLoading, shareContactsKey]);
 
   // Keep the red number on the app icon equal to your unread count
   useEffect(() => {
