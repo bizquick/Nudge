@@ -7,10 +7,11 @@ import { SwipeRow } from './components/SwipeRow';
 import { Avatar, AvatarContext, ProfileContext, ProfileLink } from './components/Avatar';
 import { ProfileSheet } from './components/ProfileSheet';
 import { GroupInfoSheet } from './components/GroupInfoSheet';
+import { HomeQueue } from './components/HomeQueue';
 import { AvatarPicker } from './components/AvatarPicker';
 import { AuthScreen } from './components/AuthScreen';
 import { Insights } from './components/Insights';
-import { Send, Archive, LogOut, Share2, Inbox as InboxIcon, Users, User, ChevronLeft, ChevronDown, TrendingUp, Pencil, BellOff, Bell, Trash2, StarOff, CheckCheck, BarChart3, ChevronRight, RefreshCw, Info } from 'lucide-react';
+import { Send, Archive, LogOut, Share2, Inbox as InboxIcon, Users, User, ChevronLeft, ChevronDown, TrendingUp, Pencil, BellOff, Bell, Trash2, StarOff, CheckCheck, Star, BarChart3, ChevronRight, RefreshCw, Info } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { ImageWithFallback } from './components/figma/ImageWithFallback';
 import nudgeLogo from '../imports/image-3.png';
@@ -406,6 +407,17 @@ export default function App() {
   // Whose profile card is open (tap anyone's picture or name)
   const [profileName, setProfileName] = useState<string | null>(null);
   const [showGroupInfo, setShowGroupInfo] = useState(false);
+  // Favorites and Checked now live under the Nudges tab (Home is just your queue)
+  const [savedView, setSavedView] = useState<'favorited' | 'archived' | null>(null);
+  const [showRequests, setShowRequests] = useState(false);
+  // "Later": nudges you pushed to the back of your queue (kept on this phone)
+  const [laterAt, setLaterAt] = useState<Record<string, number>>(() => {
+    try { return JSON.parse(localStorage.getItem('addly.later') || '{}'); } catch { return {}; }
+  });
+  const saveLater = (next: Record<string, number>) => {
+    setLaterAt(next);
+    try { localStorage.setItem('addly.later', JSON.stringify(next)); } catch { /* storage unavailable */ }
+  };
   // Someone's invite link (addlyapp.com/add?u=Name, or the older flagem.app / nudgem.app ones) was opened — start a nudge to them once signed in
   const [pendingInvite, setPendingInvite] = useState<string | null>(null);
   const [editingNote, setEditingNote] = useState(false);
@@ -1733,6 +1745,105 @@ export default function App() {
 
   const isToday = (d: Date) => d.toDateString() === new Date().toDateString();
 
+  // ---- Home queue ----
+  // Everything waiting for you, in your chosen order (🤯 priorities first). Nudges you
+  // tapped "Later" on go to the back, in the order you pushed them there.
+  const homeQueue = (() => {
+    const base = withPrioritiesFirst(
+      sortReminders(homeReminders.filter(r => (!isDone(r) || r.id === expandedId) && !reopenedReminders.includes(r)), sortSettings.unread),
+      expandedId, false
+    );
+    const now = base.filter(r => !laterAt[r.id]);
+    const later = base.filter(r => laterAt[r.id]).sort((a, b) => laterAt[a.id] - laterAt[b.id]);
+    return [...now, ...later];
+  })();
+  const queueLeft = homeQueue.filter(r => !isDone(r)).length + reopenedReminders.length;
+
+  // Your checks by day (for "done today", the week dots, and your streak)
+  const checkDays = new Set(
+    Array.from(myStates.values()).map(st => st.checked_at && new Date(st.checked_at).toDateString()).filter(Boolean) as string[]
+  );
+  const doneToday = Array.from(myStates.values()).filter(st => st.checked_at && isToday(new Date(st.checked_at))).length;
+  const week = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() - (6 - i));
+    return checkDays.has(d.toDateString());
+  });
+  const streak = (() => {
+    let count = 0;
+    const d = new Date();
+    if (!checkDays.has(d.toDateString())) d.setDate(d.getDate() - 1); // today isn't over yet
+    while (checkDays.has(d.toDateString())) { count++; d.setDate(d.getDate() - 1); }
+    return count;
+  })();
+
+  const handleQueueDone = (id: string) => {
+    const r = reminders.find(x => x.id === id);
+    if (r && !r.checkedOut) handleToggleCheckedOut(id);
+    if (laterAt[id]) { const next = { ...laterAt }; delete next[id]; saveLater(next); }
+    if (expandedId === id) setExpandedId(null);
+  };
+  const handleLater = (id: string) => {
+    const before = laterAt;
+    saveLater({ ...laterAt, [id]: Date.now() });
+    if (expandedId === id) setExpandedId(null);
+    toast('Moved to the back of the line', {
+      duration: 3000,
+      action: { label: 'Undo', onClick: () => saveLater(before) },
+    });
+  };
+  // Nudge requests: a slim banner at the top of Home that opens to Accept / Decline
+  const liveRequests = requests.filter(q => !blockedNames.has(q.sender));
+  const requestsBanner = liveRequests.length > 0 ? (
+    <>
+      <button
+        onClick={() => setShowRequests(v => !v)}
+        className="w-full mb-3 flex items-center gap-2 px-3.5 py-2.5 rounded-2xl bg-request-50 border border-request-300 text-left"
+      >
+        <span className="flex -space-x-2">
+          {liveRequests.slice(0, 3).map(q => <span key={q.sender} className="rounded-full ring-2 ring-request-50"><Avatar name={q.sender} size={24} /></span>)}
+        </span>
+        <span className="flex-1 text-sm text-request-700">
+          {liveRequests.length} nudge request{liveRequests.length === 1 ? '' : 's'}
+        </span>
+        <ChevronDown className={`w-4 h-4 text-request-700 transition-transform ${showRequests ? 'rotate-180' : ''}`} />
+      </button>
+            {showRequests && (
+              <div className="mb-3 space-y-2">
+                {requests.filter(q => !blockedNames.has(q.sender)).map(q => (
+                  <div key={q.sender} className="rounded-2xl border-2 border-request-300 bg-request-50 p-3.5">
+                    <div className="flex items-center gap-3">
+                      <Avatar name={q.sender} size={44} profile />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[15px] font-medium text-stone-900 truncate">
+                          <ProfileLink name={q.sender}>{q.sender}</ProfileLink> wants to send you nudges
+                        </p>
+                        <p className="text-xs text-request-700">
+                          {q.waiting} nudge{q.waiting === 1 ? '' : 's'} waiting · accept to see {q.waiting === 1 ? 'it' : 'them'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex gap-2">
+                      <button onClick={() => handleAcceptRequest(q.sender)} className="flex-1 h-10 rounded-xl bg-brand-600 text-white text-sm active:bg-brand-700">
+                        Accept
+                      </button>
+                      <button onClick={() => handleDeclineRequest(q.sender)} className="flex-1 h-10 rounded-xl border border-request-300 bg-white text-stone-700 text-sm active:bg-request-100">
+                        Decline
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => { if (confirm(`Block ${q.sender}? You won't get nudges, messages, or notifications from them. They won't be told.`)) handleBlock(q.sender); }}
+                      className="mt-2 w-full text-center text-xs text-stone-500"
+                    >
+                      Block {q.sender}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+    </>
+  ) : null;
+
   // Unread: "New from" bubbles, then Priority / Today / Earlier sections
   const renderUnreadHome = () => {
     // Checked nudges with new messages get their own section at the very top
@@ -1982,19 +2093,38 @@ export default function App() {
           ) : (
             // Large left-aligned screen title, iOS style (the logo lives on the sign-in and loading screens)
             mobileTab === 'inbox' ? (
-              // Home greets you by name, with a one-line summary of what's waiting
-              <div className="pt-1">
-                <h1 className="tab-title text-[28px] leading-tight text-stone-800">
-                  {greeting}, {currentUser.split(' ')[0]}
-                </h1>
-                <p className="text-sm text-stone-500 mt-0.5">
-                  {unreadCount === 0
-                    ? "You're all caught up"
-                    : [
-                        `${unreadCount} new nudge${unreadCount === 1 ? '' : 's'}`,
-                        unreadPriorityCount ? `${unreadPriorityCount} priority` : null,
-                      ].filter(Boolean).join(' · ')}
-                </p>
+              // Home is your queue: what's left, what you've done today, and a ring that fills up
+              <div className="pt-1 w-full flex items-center gap-3">
+                <div className="flex-1 min-w-0">
+                  <h1 className="tab-title text-[30px] leading-tight text-stone-800">Up next</h1>
+                  <p className="text-sm text-stone-500 mt-0.5">
+                    {queueLeft === 0 ? 'All caught up' : `${queueLeft} left`}
+                    {doneToday > 0 ? ` · ${doneToday} done today` : ''}
+                  </p>
+                </div>
+                {(queueLeft > 0 || doneToday > 0) && (
+                  <div className="relative w-12 h-12 shrink-0" aria-label={`${doneToday} of ${doneToday + queueLeft} done today`}>
+                    <svg width="48" height="48" viewBox="0 0 48 48">
+                      <circle cx="24" cy="24" r="19" fill="none" stroke="#E7E1D3" strokeWidth="5" />
+                      {doneToday > 0 && <circle
+                        cx="24" cy="24" r="19" fill="none" stroke="#2E7552" strokeWidth="5" strokeLinecap="round"
+                        strokeDasharray={`${(doneToday / Math.max(1, doneToday + queueLeft)) * 119.4} 119.4`}
+                        transform="rotate(-90 24 24)"
+                        style={{ transition: 'stroke-dasharray 400ms ease' }}
+                      />}
+                    </svg>
+                    <span className="absolute inset-0 flex items-center justify-center text-[11px] text-stone-700">
+                      {doneToday}/{doneToday + queueLeft}
+                    </span>
+                  </div>
+                )}
+              </div>
+            ) : mobileTab === 'people' && savedView ? (
+              <div className="pt-1 flex items-center gap-1 -ml-2">
+                <button onClick={() => { setSavedView(null); setAllMessagesFilter('unread'); setExpandedId(null); }} className="p-1.5 rounded-lg active:bg-stone-200" aria-label="Back to Nudges">
+                  <ChevronLeft className="w-6 h-6 text-stone-700" />
+                </button>
+                <h1 className="tab-title text-[30px] leading-tight text-stone-800">{savedView === 'favorited' ? 'Favorites' : 'Checked'}</h1>
               </div>
             ) : (
               <h1 className="tab-title pt-1 text-[30px] leading-tight text-stone-800">
@@ -2004,31 +2134,6 @@ export default function App() {
           )}
         </div>
 
-        {/* Filter tabs (Home). Inside a chat, its buttons sit at the bottom instead. */}
-        {selectedSender ? null : mobileTab === 'inbox' ? (
-          <div className="mb-1 flex gap-2 pt-1 pb-1">
-            {(['unread', 'favorited', 'archived'] as const).map(filter => {
-              const isActive = allMessagesFilter === filter;
-              const labels = { unread: 'Unread', favorited: 'Favorites', archived: 'Checked' };
-              return (
-                <button
-                  key={filter}
-                  onClick={() => selectFilter(filter)}
-                  className={`px-4 py-1.5 rounded-full text-sm transition-colors ${
-                    isActive
-                      ? 'bg-brand-600 text-white'
-                      : 'bg-white border border-stone-300 text-stone-600 hover:bg-stone-50'
-                  }`}
-                >
-                  {labels[filter]}
-                  {filter === 'unread' && unreadCount > 0 && (
-                    <span className="ml-1.5 min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center rounded-full bg-notify text-white text-[11px] align-[1px]">{unreadCount}</span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        ) : null}
       </div>
 
       {/* Scrollable content — only this area scrolls */}
@@ -2099,6 +2204,25 @@ export default function App() {
             })()}
             </>
           ) : mobileTab === 'inbox' ? (
+            <HomeQueue
+              currentUser={currentUser}
+              queue={homeQueue}
+              withNewMessages={reopenedReminders}
+              messageCount={(id) => shownMessages.filter(m => m.reminderId === id).length}
+              hasNewMessage={hasNewMessages}
+              expandedId={expandedId}
+              onExpand={setExpandedId}
+              renderFull={(r) => renderHomeList([r], undefined, { openIds: new Set([r.id]) })}
+              onDone={handleQueueDone}
+              onLater={handleLater}
+              requestsBanner={requestsBanner}
+              sortControl={<SortMenu value={sortSettings.unread} onChange={(st) => changeSort('unread', st)} />}
+              doneToday={doneToday}
+              week={week}
+              streak={streak}
+              onExplore={() => { setMobileTab('popular'); setPopularSubTab('explore'); }}
+            />
+          ) : mobileTab === 'people' && savedView ? (
             <>
             {allMessagesFilter === 'favorited' && foldersReady && (() => {
               const favorites = allRemindersForUser.filter(r => r.favorited);
@@ -2119,45 +2243,10 @@ export default function App() {
                 />
               );
             })()}
-            {/* Nudge requests: always first on Home until you accept or decline */}
-            {requests.filter(q => !blockedNames.has(q.sender)).length > 0 && (
-              <div className="mb-3 space-y-2">
-                <p className="text-xs text-request-700">Nudge requests</p>
-                {requests.filter(q => !blockedNames.has(q.sender)).map(q => (
-                  <div key={q.sender} className="rounded-2xl border-2 border-request-300 bg-request-50 p-3.5">
-                    <div className="flex items-center gap-3">
-                      <Avatar name={q.sender} size={44} profile />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[15px] font-medium text-stone-900 truncate">
-                          <ProfileLink name={q.sender}>{q.sender}</ProfileLink> wants to send you nudges
-                        </p>
-                        <p className="text-xs text-request-700">
-                          {q.waiting} nudge{q.waiting === 1 ? '' : 's'} waiting · accept to see {q.waiting === 1 ? 'it' : 'them'}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="mt-3 flex gap-2">
-                      <button onClick={() => handleAcceptRequest(q.sender)} className="flex-1 h-10 rounded-xl bg-brand-600 text-white text-sm active:bg-brand-700">
-                        Accept
-                      </button>
-                      <button onClick={() => handleDeclineRequest(q.sender)} className="flex-1 h-10 rounded-xl border border-request-300 bg-white text-stone-700 text-sm active:bg-request-100">
-                        Decline
-                      </button>
-                    </div>
-                    <button
-                      onClick={() => { if (confirm(`Block ${q.sender}? You won't get nudges, messages, or notifications from them. They won't be told.`)) handleBlock(q.sender); }}
-                      className="mt-2 w-full text-center text-xs text-stone-500"
-                    >
-                      Block {q.sender}
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
             <div className="flex justify-end -mr-1 mb-1">
-              <SortMenu value={sortSettings[allMessagesFilter]} onChange={(s) => changeSort(allMessagesFilter, s)} />
+              <SortMenu value={sortSettings[allMessagesFilter]} onChange={(st) => changeSort(allMessagesFilter, st)} />
             </div>
-            {allMessagesFilter === 'unread' ? renderUnreadHome() : renderHomeList(displayedReminders)}
+            {renderHomeList(displayedReminders)}
             </>
           ) : mobileTab === 'popular' ? (
             <div>
@@ -2242,6 +2331,23 @@ export default function App() {
             </div>
           ) : mobileTab === 'people' ? (
             <div className="divide-y divide-stone-100">
+              {/* Favorites and Checked (they used to be filters on Home) */}
+              <div className="grid grid-cols-2 gap-2 pb-3">
+                {([
+                  { view: 'favorited' as const, label: 'Favorites', icon: <Star className="w-[18px] h-[18px] text-gold-500" />, count: allRemindersForUser.filter(r => r.favorited).length },
+                  { view: 'archived' as const, label: 'Checked', icon: <CheckCheck className="w-[18px] h-[18px] text-brand-600" />, count: allRemindersForUser.filter(r => r.archived || (r.checkedOut && homeReminders.includes(r))).length },
+                ]).map(v => (
+                  <button
+                    key={v.view}
+                    onClick={() => { setSavedView(v.view); setAllMessagesFilter(v.view); setExpandedId(null); setActiveFolder(null); }}
+                    className="flex items-center gap-2.5 px-3.5 py-3 rounded-2xl bg-white border border-stone-200 text-left active:bg-stone-50"
+                  >
+                    {v.icon}
+                    <span className="flex-1 text-[15px] text-stone-800">{v.label}</span>
+                    <span className="text-sm text-stone-400">{v.count}</span>
+                  </button>
+                ))}
+              </div>
               {/* My Nudges */}
               {myOwnReminders.length > 0 && (
                 <button
@@ -2508,7 +2614,7 @@ export default function App() {
       ]).map(tab => (
         <button
           key={tab.id}
-          onClick={() => { selectSender(null); setMobileTab(tab.id); }}
+          onClick={() => { selectSender(null); setMobileTab(tab.id); setSavedView(null); setAllMessagesFilter('unread'); }}
           className={`flex-1 flex flex-col items-center gap-1 py-2.5 relative transition-colors ${
             !selectedSender && mobileTab === tab.id ? 'text-brand-600' : 'text-stone-400'
           }`}
