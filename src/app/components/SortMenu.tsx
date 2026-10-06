@@ -148,14 +148,14 @@ export function SortMenu({ value, onChange }: { value: SortSetting; onChange: (s
   );
 }
 
-// List or grid, remembered for each list on this device
+// Grid (the default) or list, remembered for each list on this device
 export type ListView = 'list' | 'grid';
 
 export function loadListView(listName: string): ListView {
   try {
-    return localStorage.getItem(`nudge.view.${listName}`) === 'grid' ? 'grid' : 'list';
+    return localStorage.getItem(`nudge.view.${listName}`) === 'list' ? 'list' : 'grid';
   } catch {
-    return 'list';
+    return 'grid';
   }
 }
 

@@ -438,7 +438,7 @@ export function ReminderCard({
                     {reminder.groupName}
                   </span>
                 ) : (
-                  <div className="relative w-8 h-8">
+                  <div className="relative w-9 h-8">
                     {otherParticipants.slice(0, 2).map((p, i) => (
                       <div key={p} className="absolute rounded-full border-2 border-white" style={{ left: i * 8, top: i === 1 ? 6 : 0, zIndex: 2 - i }}>
                         <Avatar name={p} size={20} profile />
@@ -497,13 +497,13 @@ export function ReminderCard({
               )}
 
               {isGroup ? (
-                <div className={`${flipped ? 'mr-auto' : 'ml-auto'} flex items-center gap-1.5 shrink-0`} title={otherParticipants.join(', ')}>
+                <div className={`${flipped ? 'mr-auto' : 'ml-auto'} min-w-0 flex items-center gap-1.5`} title={otherParticipants.join(', ')}>
                   {reminder.groupName && (
-                    <span className="px-2 py-1 rounded-full bg-stone-100 text-stone-600 text-xs max-w-[100px] truncate">
+                    <span className="min-w-0 px-2 py-1 rounded-full bg-stone-100 text-stone-600 text-xs max-w-[100px] truncate">
                       {reminder.groupName}
                     </span>
                   )}
-                  <div className="relative w-9 h-9 sm:w-10 sm:h-10">
+                  <div className={`relative shrink-0 h-9 sm:h-10 ${otherParticipants.length > 2 ? 'w-12' : 'w-9 sm:w-10'}`}>
                     {otherParticipants.slice(0, 2).map((p, i) => (
                       <div key={p} className="absolute rounded-full border-2 border-white" style={{ left: i * 10, top: i === 1 ? 8 : 0, zIndex: 2 - i }}>
                         <Avatar name={p} size={24} profile />
@@ -728,7 +728,7 @@ export function ReminderCard({
               title={reminder.title || displayText || 'Nudge'}
               subtitle={isGroup || reminder.isPublic
                 ? (reminder.groupName || otherParticipants.slice(0, 4).join(', ') + (otherParticipants.length > 4 ? ` +${otherParticipants.length - 4}` : ''))
-                : `with ${otherParticipants[0] ?? 'yourself'}`}
+                : otherParticipants[0] ? `with ${otherParticipants[0]}` : 'My Nudges'}
               thumb={reminder.previewImage || photos[0] || null}
               ThumbIcon={todos ? ListChecks : Icon ?? MessageCircle}
               onClose={() => { setShowMessages(false); setShowMsgEmoji(false); }}
@@ -847,7 +847,7 @@ export function ReminderCard({
                       <div key={message.id}>
                         {showTime && (
                           <p className="text-center text-[11px] text-stone-400 pt-3 pb-1">
-                            {formatDate(message.createdAt)} {formatTime(message.createdAt)}
+                            {formatDate(message.createdAt)} {message.createdAt.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
                           </p>
                         )}
                         <div className={`flex flex-col ${mine ? 'items-end' : 'items-start'} ${sameAsBefore ? '' : 'pt-1.5'}`}>

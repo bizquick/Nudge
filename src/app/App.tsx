@@ -3,6 +3,7 @@ import { ReminderList } from './components/ReminderList';
 import { QuickSendModal } from './components/QuickSendModal';
 import { SortMenu, sortReminders, loadSortSetting, saveSortSetting, type SortSetting, ViewToggle, loadListView, saveListView, type ListView } from './components/SortMenu';
 import { NudgeGrid, NudgeSheet } from './components/NudgeGrid';
+import { ChatHistory } from './components/ChatHistory';
 import { FolderBar, type Folder } from './components/FolderBar';
 import { SwipeRow } from './components/SwipeRow';
 import { Avatar, AvatarContext, ProfileContext, ProfileLink } from './components/Avatar';
@@ -14,7 +15,7 @@ import { AvatarPicker } from './components/AvatarPicker';
 import { AuthScreen } from './components/AuthScreen';
 import { Insights } from './components/Insights';
 import { FriendsPage, type Friend } from './components/FriendsPage';
-import { Send, Archive, LogOut, Share2, Inbox as InboxIcon, Users, User, ChevronLeft, ChevronDown, TrendingUp, Pencil, BellOff, Bell, Trash2, StarOff, CheckCheck, Star, BarChart3, ChevronRight, RefreshCw, Info, KeyRound } from 'lucide-react';
+import { Send, Archive, LogOut, Share2, Inbox as InboxIcon, Users, User, ChevronLeft, ChevronDown, TrendingUp, Pencil, BellOff, Bell, Trash2, StarOff, CheckCheck, Star, BarChart3, ChevronRight, RefreshCw, Info, KeyRound, MessageCircle } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { ImageWithFallback } from './components/figma/ImageWithFallback';
 import nudgeLogo from '../imports/image-3.png';
@@ -355,6 +356,9 @@ export default function App() {
   };
   // A nudge opened from a grid tile
   const [gridOpenId, setGridOpenId] = useState<string | null>(null);
+  // ...opened straight into its conversation (from Chat history)
+  const [gridOpenChat, setGridOpenChat] = useState(false);
+  const [showChatHistory, setShowChatHistory] = useState(false);
   const [sortSettings, setSortSettings] = useState<Record<'unread' | 'favorited' | 'archived', SortSetting>>(() => ({
     unread: loadSortSetting('unread'),
     favorited: loadSortSetting('favorited'),
@@ -1895,8 +1899,9 @@ export default function App() {
   const unreadPriorityCount = inboxReminders.filter(r => r.prioritizedAt && !r.checkedOut && !r.archived).length;
 
   // One Home list (rich cards). Unread uses several of these — one per section.
-  const renderHomeList = (list: Reminder[], emptyMessage?: string, opts: { openIds?: Set<string>; compact?: boolean } = {}) => (
+  const renderHomeList = (list: Reminder[], emptyMessage?: string, opts: { openIds?: Set<string>; compact?: boolean; openMessagesId?: string } = {}) => (
             <ReminderList
+              openMessagesId={opts.openMessagesId}
               richCards
               openIds={opts.openIds}
               compact={opts.compact}
@@ -2667,6 +2672,14 @@ export default function App() {
                     <span className="text-sm text-stone-400">{v.count}</span>
                   </button>
                 ))}
+                <button
+                  onClick={() => setShowChatHistory(true)}
+                  className="col-span-2 flex items-center gap-2.5 px-3.5 py-3 rounded-2xl bg-white border border-stone-200 text-left active:bg-stone-50"
+                >
+                  <MessageCircle className="w-[18px] h-[18px] text-blue-500" />
+                  <span className="flex-1 text-[15px] text-stone-800">Chat history</span>
+                  <ChevronRight className="w-4 h-4 text-stone-400" />
+                </button>
               </div>
               {/* My Nudges */}
               {myOwnReminders.length > 0 && (
@@ -3051,12 +3064,21 @@ export default function App() {
           onChangePicture={() => setGroupPictureFor(selectedGroupKey)}
         />
       )}
+      {showChatHistory && (
+        <ChatHistory
+          messages={shownMessages}
+          reminders={allUserReminders}
+          currentUser={currentUser}
+          onOpen={(id) => { setGridOpenId(id); setGridOpenChat(true); }}
+          onClose={() => setShowChatHistory(false)}
+        />
+      )}
       {gridOpenId && (() => {
         const r = allUserReminders.find(x => x.id === gridOpenId);
         if (!r) return null;
         return (
-          <NudgeSheet onClose={() => setGridOpenId(null)}>
-            {renderHomeList([r], undefined, { openIds: new Set([r.id]) })}
+          <NudgeSheet onClose={() => { setGridOpenId(null); setGridOpenChat(false); }}>
+            {renderHomeList([r], undefined, { openIds: new Set([r.id]), openMessagesId: gridOpenChat ? r.id : undefined })}
           </NudgeSheet>
         );
       })()}
