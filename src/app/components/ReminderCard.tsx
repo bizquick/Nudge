@@ -8,6 +8,7 @@ import { PhotoViewer } from './PhotoViewer';
 import { TodoEditor } from './TodoEditor';
 import { LinkCard } from './LinkCard';
 import { EmojiPicker, insertAtCursor } from './EmojiPicker';
+import { MessageText } from './MessageText';
 import { guessCategory } from '../utils/guessCategory';
 import { uploadAttachment } from '../utils/upload';
 import type { Attachment } from '../App';
@@ -598,7 +599,7 @@ export function ReminderCard({
               // (group nudges keep it, for the rename pencil)
               (reminder.url && !isGroup && !reminder.prioritizedAt && !muted) ? null :
               <div className="flex items-center gap-2 mb-1">
-                <h3 className="text-lg sm:text-lg flex-1 min-w-0">
+                <h3 className="text-lg sm:text-lg flex-1 min-w-0 [overflow-wrap:anywhere]">
                   {reminder.prioritizedAt && <span className="mr-1.5" title="Priority">🤯</span>}
                   {reminder.title}
                 </h3>
@@ -649,7 +650,7 @@ export function ReminderCard({
                 onEdit={onTodoEdit ? (op, itemId, text) => onTodoEdit(reminder.id, op, itemId, text) : undefined}
               />
             ) : reminder.content ? (
-              <p className="text-stone-700 mb-3">{reminder.content}</p>
+              <MessageText text={reminder.content} className="text-stone-700 mb-3" />
             ) : null}
 
             {/* One Complete button per person. Yours you can tap; the others show whether
@@ -756,15 +757,14 @@ export function ReminderCard({
                               );
                             })()}
                             {message.text && (
-                              <div
-                                className={`min-w-0 px-3.5 py-2 text-sm rounded-2xl break-words ${
+                              <MessageText
+                                text={message.text}
+                                className={`min-w-0 max-w-full px-3.5 py-2 text-sm rounded-2xl ${
                                   mine
                                     ? 'bg-blue-500 text-white rounded-br-md'
                                     : 'bg-white text-stone-900 border border-stone-200 rounded-bl-md'
                                 }`}
-                              >
-                                {message.text}
-                              </div>
+                              />
                             )}
                           </div>
                         </div>

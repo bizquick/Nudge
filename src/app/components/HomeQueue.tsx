@@ -241,7 +241,7 @@ function UpNextCard({ reminder: r, currentUser, onDone, onLater, messageCount, o
               Back on your list · {newMessage.sender === currentUser ? 'you' : newMessage.sender} sent a new message
             </span>
             {(newMessage.text || newMessage.attachments.length > 0) && (
-              <span className="block mt-0.5 text-[14px] text-stone-800 line-clamp-2">
+              <span className="block mt-0.5 text-[14px] text-stone-800 line-clamp-2 [overflow-wrap:anywhere]">
                 {newMessage.text || '📷 Photo'}
               </span>
             )}
@@ -258,13 +258,13 @@ function UpNextCard({ reminder: r, currentUser, onDone, onLater, messageCount, o
           {r.prioritizedAt && <span title="Priority">🤯</span>}
         </div>
         {r.url ? (
-          <a href={r.url} target="_blank" rel="noopener noreferrer" className="mt-2 block text-[17px] leading-snug font-medium text-stone-900 break-words">
+          <a href={r.url} target="_blank" rel="noopener noreferrer" className="mt-2 block text-[17px] leading-snug font-medium text-stone-900 [overflow-wrap:anywhere]">
             {r.title} <ExternalLink className="inline w-4 h-4 text-brand-600 align-[-2px]" />
           </a>
         ) : (
-          <p className="mt-2 text-[17px] leading-snug font-medium text-stone-900 break-words">{r.title}</p>
+          <p className="mt-2 text-[17px] leading-snug font-medium text-stone-900 [overflow-wrap:anywhere]">{r.title}</p>
         )}
-        {r.content && r.content !== r.title && <p className="mt-1 text-[14px] text-stone-600 break-words line-clamp-3">“{r.content}”</p>}
+        {r.content && r.content !== r.title && <p className="mt-1 text-[14px] text-stone-600 [overflow-wrap:anywhere] line-clamp-3">“{r.content}”</p>}
 
         <div className="mt-4 flex gap-2">
           <button

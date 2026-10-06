@@ -80,7 +80,7 @@ export function TodoEditor({ items, currentUser, canEdit, onToggle, onEdit }: To
                   type="button"
                   disabled={!editable || !item.id}
                   onClick={() => { setEditingId(item.id!); setDraft(item.text); }}
-                  className={`flex-1 min-w-0 text-left break-words ${item.done ? 'text-stone-400 line-through' : 'text-stone-800'}`}
+                  className={`flex-1 min-w-0 text-left [overflow-wrap:anywhere] ${item.done ? 'text-stone-400 line-through' : 'text-stone-800'}`}
                   title={editable ? 'Tap to edit' : undefined}
                 >
                   {item.text}

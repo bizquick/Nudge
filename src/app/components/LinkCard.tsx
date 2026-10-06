@@ -87,7 +87,7 @@ export function LinkCard({ url, image, title }: { url: string; image?: string; t
           </span>
         )}
         <span className="flex-1 min-w-0">
-          <span className="block text-[14px] text-stone-900 line-clamp-2">{label}</span>
+          <span className="block text-[14px] text-stone-900 line-clamp-2 [overflow-wrap:anywhere]">{label}</span>
           <PlatformBadge platform={platform} className="mt-1" />
         </span>
         <span className="w-9 h-9 rounded-full shrink-0 flex items-center justify-center" style={{ background: platform.color, color: platform.on }}>

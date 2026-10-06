@@ -12,6 +12,7 @@ import { ChangePassword } from './components/ChangePassword';
 import { AvatarPicker } from './components/AvatarPicker';
 import { AuthScreen } from './components/AuthScreen';
 import { Insights } from './components/Insights';
+import { FriendsPage, type Friend } from './components/FriendsPage';
 import { Send, Archive, LogOut, Share2, Inbox as InboxIcon, Users, User, ChevronLeft, ChevronDown, TrendingUp, Pencil, BellOff, Bell, Trash2, StarOff, CheckCheck, Star, BarChart3, ChevronRight, RefreshCw, Info, KeyRound } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { ImageWithFallback } from './components/figma/ImageWithFallback';
@@ -93,8 +94,10 @@ export interface NudgeState {
 
 export interface Connection {
   other_name: string;
-  status: 'accepted' | 'declined' | 'blocked';
+  status: 'accepted' | 'declined' | 'blocked' | 'removed';
   declined_at: string | null;
+  /** When you removed them as a friend: what they sent before still shows */
+  removed_at?: string | null;
 }
 
 export interface NudgeRequest {
@@ -444,7 +447,8 @@ export default function App() {
         // A Public nudge sent to you by someone you haven't accepted: Popular only, not your feed
         if (connections && currentUser && r.recipients.includes(currentUser) && r.sender !== currentUser) {
           const c = connectionOf.get(r.sender);
-          const accepted = c?.status === 'accepted' && (!c.declined_at || r.createdAt > new Date(c.declined_at));
+          const accepted = (c?.status === 'accepted' || (c?.status === 'removed' && !!c.removed_at && r.createdAt <= new Date(c.removed_at)))
+            && (!c.declined_at || r.createdAt > new Date(c.declined_at));
           if (!accepted) next.awaitingMyAcceptance = true;
         }
         return next;
@@ -463,6 +467,7 @@ export default function App() {
   const [profileName, setProfileName] = useState<string | null>(null);
   const [showGroupInfo, setShowGroupInfo] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
+  const [showFriends, setShowFriends] = useState(false);
   // Group pictures (anyone in a group can set one; everyone in it sees it): group key -> picture
   const [groupAvatars, setGroupAvatars] = useState<Record<string, string>>({});
   const [groupPictureFor, setGroupPictureFor] = useState<string | null>(null);
@@ -614,7 +619,7 @@ export default function App() {
       supabase.from('chat_notes').select('chat_key, note'),
       supabase.from('nudge_reads').select('reminder_id, seen_at'),
       supabase.from('nudge_user_state').select('owner_name, reminder_id, checked_at, archived_at, popular_checked_at, explore_shown_at, explore_done_at'),
-      supabase.from('connections').select('other_name, status, declined_at'),
+      supabase.from('connections').select('*'),
       supabase.rpc('my_nudge_requests'),
       supabase.rpc('my_pending_recipients'),
       supabase.from('group_avatars').select('group_key, avatar'),
@@ -1035,6 +1040,23 @@ export default function App() {
     setConnection(name, 'blocked');
     toast(`Blocked ${name}. You won't see anything from them.`);
   };
+  // Removing a friend keeps what they've already sent; anything new from them is a request again
+  const handleRemoveFriend = (name: string) => {
+    setConnection(name, 'removed', { removed_at: new Date().toISOString() });
+    toast(`Removed ${name} from your friends`);
+  };
+  /** Add a friend by exact username. Returns a problem to show, or null when added. */
+  const handleAddFriend = async (username: string): Promise<string | null> => {
+    if (username.toLowerCase() === currentUser.toLowerCase()) return "That's you!";
+    const { data, error } = await supabase.rpc('find_profile', { p_name: username });
+    if (error || typeof data !== 'string') return `Couldn't find anyone named ${username} on Addly`;
+    if (blockedNames.has(data)) return `You blocked ${data}. Unblock them first (below Friends on the You tab).`;
+    if (connectionOf.get(data)?.status === 'accepted') { toast(`${data} is already your friend`); return null; }
+    setRequests(prev => prev.filter(q => q.sender !== data));
+    await setConnection(data, 'accepted');
+    toast(`Added ${data}`);
+    return null;
+  };
   // Unblocking starts fresh: nothing old comes back, and their next nudge is a request
   const handleUnblock = (name: string) => {
     setConnection(name, 'declined', { declined_at: new Date().toISOString() });
@@ -1376,6 +1398,25 @@ export default function App() {
   const contacts = Array.from(new Set(allUserReminders.flatMap(r => [r.sender, ...r.recipients])))
     .filter(name => name && name !== currentUser && !blockedNames.has(name))
     .sort((a, b) => a.localeCompare(b));
+
+  // Friends: everyone you've swapped nudges with, plus anyone you've added — minus
+  // people you've removed, declined, or blocked
+  const friends: Friend[] = (() => {
+    const counts = new Map<string, number>();
+    for (const r of allUserReminders) {
+      if (r.isPublic && r.sender !== currentUser && !r.recipients.includes(currentUser)) continue;
+      for (const p of new Set([r.sender, ...r.recipients])) {
+        if (p && p !== currentUser) counts.set(p, (counts.get(p) ?? 0) + 1);
+      }
+    }
+    for (const c of connections ?? []) {
+      if (c.status === 'accepted' && !counts.has(c.other_name)) counts.set(c.other_name, 0);
+    }
+    return Array.from(counts, ([name, count]) => ({ name, count })).filter(f => {
+      const status = connectionOf.get(f.name)?.status;
+      return status !== 'blocked' && status !== 'removed' && status !== 'declined';
+    });
+  })();
 
   // Home's Unread list: only nudges sent to you, plus ones you saved to My Nudges
   // (those list you as a recipient too) — not ones you only sent to others.
@@ -2776,6 +2817,21 @@ export default function App() {
                   </button>
                 </div>
               </div>
+              <button
+                onClick={() => setShowFriends(true)}
+                className="w-full bg-white rounded-xl border border-stone-200 p-4 flex items-center gap-3 text-left active:bg-stone-50"
+              >
+                <span className="w-10 h-10 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center shrink-0">
+                  <Users className="w-5 h-5" />
+                </span>
+                <span className="flex-1 min-w-0">
+                  <span className="block text-base">Friends</span>
+                  <span className="block text-sm text-stone-500">
+                    {friends.length ? `${friends.length} friend${friends.length === 1 ? '' : 's'} · add, remove, or block` : 'Add friends by username'}
+                  </span>
+                </span>
+                <ChevronRight className="w-5 h-5 text-stone-400 shrink-0" />
+              </button>
               <div className="bg-white rounded-xl border border-stone-200 p-5">
                 <p className="text-base">Invite friends</p>
                 <p className="text-sm text-stone-500 mt-1">
@@ -2963,6 +3019,17 @@ export default function App() {
           onClose={() => setShowGroupInfo(false)}
           picture={groupAvatars[selectedGroupKey] ?? null}
           onChangePicture={() => setGroupPictureFor(selectedGroupKey)}
+        />
+      )}
+      {showFriends && (
+        <FriendsPage
+          friends={friends}
+          onClose={() => setShowFriends(false)}
+          onAdd={handleAddFriend}
+          onSend={(name) => setQuickSendTo(name)}
+          onRemove={handleRemoveFriend}
+          onBlock={handleBlock}
+          onOpenProfile={setProfileName}
         />
       )}
       {profileName && (
