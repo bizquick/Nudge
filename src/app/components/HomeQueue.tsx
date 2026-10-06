@@ -242,7 +242,7 @@ function UpNextCard({ reminder: r, currentUser, onDone, onLater, messageCount, o
             className="mb-3 w-full text-left rounded-xl bg-notify-light px-3 py-2"
           >
             <span className="block text-[12px] font-medium text-notify">
-              Back on your list · {newMessage.sender === currentUser ? 'you' : newMessage.sender} sent a new message
+              {newMessage.sender === currentUser ? 'You' : newMessage.sender} sent a new message
             </span>
             {(newMessage.text || newMessage.attachments.length > 0) && (
               <span className="block mt-0.5 text-[14px] text-stone-800 line-clamp-2 [overflow-wrap:anywhere]">
