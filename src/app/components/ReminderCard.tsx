@@ -1,4 +1,4 @@
-import { Globe, Music, Video, Type as TypeIcon, Sparkles, UtensilsCrossed, Lightbulb, ExternalLink, Check, MessageCircle, Send, Archive, Star, SmilePlus, Pencil, Forward, Heart, Globe2, FolderInput, BellOff, ListChecks, FileText, ImagePlus, Loader2, X } from 'lucide-react';
+import { Globe, Music, Video, Type as TypeIcon, Sparkles, UtensilsCrossed, Lightbulb, ExternalLink, Check, MessageCircle, Send, Archive, Star, SmilePlus, Pencil, Forward, Heart, Globe2, FolderInput, BellOff, ListChecks, FileText, ImagePlus, Loader2, X, ArrowUp, Smile } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { Reminder, Message } from '../App';
 import type { Folder } from './FolderBar';
@@ -7,6 +7,7 @@ import { CATEGORY_LABELS } from './SortMenu';
 import { PhotoViewer } from './PhotoViewer';
 import { TodoEditor } from './TodoEditor';
 import { LinkCard } from './LinkCard';
+import { EmojiPicker, insertAtCursor } from './EmojiPicker';
 import { guessCategory } from '../utils/guessCategory';
 import { uploadAttachment } from '../utils/upload';
 import type { Attachment } from '../App';
@@ -185,6 +186,8 @@ export function ReminderCard({
   const [msgUploading, setMsgUploading] = useState(0);
   const [msgViewer, setMsgViewer] = useState<{ photos: string[]; index: number } | null>(null);
   const msgFileRef = useRef<HTMLInputElement>(null);
+  const msgBoxRef = useRef<HTMLTextAreaElement>(null);
+  const [showMsgEmoji, setShowMsgEmoji] = useState(false);
   const addMessagePhotos = (files: File[]) => {
     files.filter(f => f.type.startsWith('image/')).slice(0, 6).forEach(async f => {
       setMsgUploading(n => n + 1);
@@ -201,6 +204,13 @@ export function ReminderCard({
   };
   useEffect(() => { if (openMessages && isSelected) setShowMessages(true); }, [openMessages, isSelected]);
   const [newMessage, setNewMessage] = useState('');
+  // The message box grows with each new line (up to about five), like iMessage
+  useEffect(() => {
+    const el = msgBoxRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 132)}px`;
+  }, [newMessage]);
   const [showReactionPicker, setShowReactionPicker] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(reminder.title);
@@ -255,6 +265,7 @@ export function ReminderCard({
       onAddMessage(reminder.id, newMessage.trim(), msgPhotos);
       setNewMessage('');
       setMsgPhotos([]);
+      setShowMsgEmoji(false);
     }
   };
 
@@ -785,8 +796,12 @@ export function ReminderCard({
                   ))}
                 </div>
               )}
-              {/* Message Input */}
-              <form onSubmit={handleSendMessage} className="flex gap-2">
+              {/* Message box, like iMessage: photo and emoji buttons, a rounded box that grows
+                  with each new line, and a round blue send arrow */}
+              {showMsgEmoji && (
+                <div className="mb-2"><EmojiPicker onPick={(e) => setNewMessage(v => insertAtCursor(msgBoxRef.current, v, e))} /></div>
+              )}
+              <form onSubmit={handleSendMessage} className="flex items-end gap-2">
                 <input
                   ref={msgFileRef}
                   type="file"
@@ -798,29 +813,44 @@ export function ReminderCard({
                 <button
                   type="button"
                   onClick={() => msgFileRef.current?.click()}
-                  className="px-2.5 py-2 rounded-lg border border-stone-300 bg-white text-stone-600 active:bg-stone-100"
+                  className="w-10 h-10 shrink-0 rounded-full bg-stone-200/70 text-stone-600 flex items-center justify-center active:bg-stone-300"
                   aria-label="Add a photo"
                 >
-                  <ImagePlus className="w-4 h-4" />
+                  <ImagePlus className="w-5 h-5" />
                 </button>
-                <input
-                  type="text"
-                  value={newMessage}
-                  onChange={(e) => setNewMessage(e.target.value)}
-                  onPaste={(e) => {
-                    const pasted = Array.from(e.clipboardData?.files ?? []);
-                    if (pasted.length) { e.preventDefault(); addMessagePhotos(pasted); }
-                  }}
-                  placeholder="Type a message..."
-                  className="flex-1 min-w-0 px-3 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm"
-                />
-                <button
-                  type="submit"
-                  disabled={(!newMessage.trim() && !msgPhotos.length) || msgUploading > 0}
-                  className="px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  <Send className="w-4 h-4" />
-                </button>
+                <div className="flex-1 min-w-0 flex items-end rounded-[22px] border border-stone-300 bg-white pl-4 pr-1 py-1 focus-within:border-blue-400">
+                  <textarea
+                    ref={msgBoxRef}
+                    rows={1}
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    onPaste={(e) => {
+                      const pasted = Array.from(e.clipboardData?.files ?? []);
+                      if (pasted.length) { e.preventDefault(); addMessagePhotos(pasted); }
+                    }}
+                    placeholder="Message"
+                    enterKeyHint="send"
+                    className="flex-1 min-w-0 py-[7px] text-base leading-[22px] bg-transparent resize-none focus:outline-none placeholder:text-stone-400"
+                    aria-label="Message"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowMsgEmoji(v => !v)}
+                    className={`w-8 h-8 shrink-0 mb-[3px] rounded-full flex items-center justify-center ${showMsgEmoji ? 'text-blue-500' : 'text-stone-400'}`}
+                    aria-label="Emoji"
+                    aria-pressed={showMsgEmoji}
+                  >
+                    <Smile className="w-5 h-5" />
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={(!newMessage.trim() && !msgPhotos.length) || msgUploading > 0}
+                    className="w-8 h-8 shrink-0 mb-[3px] rounded-full bg-blue-500 text-white flex items-center justify-center disabled:bg-stone-300 transition-colors"
+                    aria-label="Send"
+                  >
+                    <ArrowUp className="w-5 h-5" strokeWidth={2.5} />
+                  </button>
+                </div>
               </form>
             </div>
           )}

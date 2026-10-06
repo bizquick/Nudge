@@ -1,9 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Globe, Music, Video, Type as TypeIcon, Sparkles, UtensilsCrossed, Lightbulb, Send, X, Paperclip, Loader2, Link2, Bookmark, ListChecks, Plus, FileText, Users } from 'lucide-react';
+import { Globe, Music, Video, Type as TypeIcon, Sparkles, UtensilsCrossed, Lightbulb, Send, X, Paperclip, Loader2, Link2, Bookmark, ListChecks, Plus, FileText, Users, Smile } from 'lucide-react';
 import type { ReminderType, NewNudge, Attachment } from '../App';
 import { supabase } from '../utils/supabase/client';
 import { guessCategory } from '../utils/guessCategory';
 import { shrinkForUpload } from '../utils/upload';
+import { EmojiPicker, insertAtCursor } from './EmojiPicker';
+import { cleanLinkTitle, splitLinkFromText } from '../utils/cleanTitle';
 import { Avatar } from './Avatar';
 import nudgeLogo from '../../imports/image-3.png';
 
@@ -51,6 +53,8 @@ export function QuickSendModal({ recipient, knownRecipients, knownGroups = [], c
   const [type, setType] = useState<ReminderType | null>(initialValues?.type ?? null);
   const [title, setTitle] = useState(initialValues?.title ?? '');
   const [content, setContent] = useState(initialValues?.content ?? '');
+  const contentRef = useRef<HTMLTextAreaElement>(null);
+  const [showEmoji, setShowEmoji] = useState(false);
   const [url, setUrl] = useState(initialValues?.url ?? '');
   const [previewImage, setPreviewImage] = useState(initialValues?.previewImage);
   const [recipientQuery, setRecipientQuery] = useState('');
@@ -184,7 +188,15 @@ export function QuickSendModal({ recipient, knownRecipients, knownGroups = [], c
     if (files.length) { files.forEach(f => attachPasted(f)); return; }
     const text = e.clipboardData.getData('text/plain').trim();
     if (text) {
-      document.execCommand('insertText', false, text);
+      // Shared text with a link inside (TikTok, Instagram…): the link goes here, the words go in the note
+      const split = splitLinkFromText(text);
+      if (split && split.rest && !url.trim()) {
+        setUrl(split.url);
+        setPreviewImage(undefined);
+        if (!content.trim()) setContent(split.rest.replace(/(^|\s)#[\p{L}\p{N}_]+/gu, ' ').replace(/\s+/g, ' ').trim());
+        return;
+      }
+      document.execCommand('insertText', false, split ? split.url : text);
       return;
     }
     // A picture copied from a web page sometimes comes only as a web address
@@ -264,7 +276,7 @@ export function QuickSendModal({ recipient, knownRecipients, knownGroups = [], c
         const fetchedTitle = json?.data?.title as string | undefined;
         const fetchedImage = (json?.data?.image?.url || json?.data?.logo?.url) as string | undefined;
         return {
-          title: trimmed || (fetchedTitle && fetchedTitle.trim()) || fallbackTitleFromUrl(trimmedUrl),
+          title: trimmed || (fetchedTitle && cleanLinkTitle(fetchedTitle, trimmedUrl)) || fallbackTitleFromUrl(trimmedUrl),
           previewImage: previewImage || fetchedImage
         };
       } catch {
@@ -653,14 +665,27 @@ export function QuickSendModal({ recipient, knownRecipients, knownGroups = [], c
                 </button>
               </div>
             ) : (
+              <div className="relative">
               <textarea
                 id="quick-content"
+                ref={contentRef}
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
                 placeholder={url.trim() || attachments.length ? 'Say something about it (optional)' : "What's on your mind?"}
                 rows={3}
-                className="w-full text-base text-stone-800 bg-transparent focus:outline-none resize-none placeholder:text-stone-400"
+                className="w-full pr-9 text-base text-stone-800 bg-transparent focus:outline-none resize-none placeholder:text-stone-400"
               />
+              <button
+                type="button"
+                onClick={() => setShowEmoji(v => !v)}
+                className={`absolute top-0 right-0 w-8 h-8 rounded-full flex items-center justify-center ${showEmoji ? 'text-brand-600' : 'text-stone-400'}`}
+                aria-label="Emoji"
+                aria-pressed={showEmoji}
+              >
+                <Smile className="w-5 h-5" />
+              </button>
+              {showEmoji && <EmojiPicker onPick={(e) => setContent(v => insertAtCursor(contentRef.current, v, e))} />}
+              </div>
             )}
           </div>
 

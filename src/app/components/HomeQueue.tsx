@@ -1,7 +1,7 @@
 import { useRef, useState, type ReactNode } from 'react';
 import { Check, Clock, ListChecks, MessageCircle, Globe, Music, Video, Type as TypeIcon, Sparkles, UtensilsCrossed, Lightbulb, ExternalLink, ChevronDown, Compass } from 'lucide-react';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
-import type { Reminder, ReminderType } from '../App';
+import type { Reminder, ReminderType, Message } from '../App';
 import { Avatar, ProfileLink } from './Avatar';
 import { CATEGORY_LABELS } from './SortMenu';
 import { PhotoViewer } from './PhotoViewer';
@@ -43,6 +43,8 @@ interface HomeQueueProps {
   withNewMessages: Reminder[];
   messageCount: (id: string) => number;
   hasNewMessage: (id: string) => boolean;
+  /** The newest message from someone else, for "back on your list" notes */
+  latestMessage?: (id: string) => Message | null;
   expandedId: string | null;
   onExpand: (id: string | null) => void;
   /** The full nudge (messages, reactions, everything), shown when opened. compact = only
@@ -133,7 +135,8 @@ export function HomeQueue(props: HomeQueueProps) {
   );
 }
 
-function UpNextCard({ reminder: r, currentUser, onDone, onLater, messageCount, open, onToggleOpen, details, mode, queue, onSelect }: HomeQueueProps & { reminder: Reminder; open: boolean; onToggleOpen: () => void; details: ReactNode }) {
+function UpNextCard({ reminder: r, currentUser, onDone, onLater, messageCount, open, onToggleOpen, details, mode, queue, onSelect, hasNewMessage, latestMessage }: HomeQueueProps & { reminder: Reminder; open: boolean; onToggleOpen: () => void; details: ReactNode }) {
+  const newMessage = hasNewMessage(r.id) ? latestMessage?.(r.id) ?? null : null;
   const explore = mode === 'explore';
   const type = categoryOf(r);
   const [leaving, setLeaving] = useState<'done' | 'later' | null>(null);
@@ -227,6 +230,23 @@ function UpNextCard({ reminder: r, currentUser, onDone, onLater, messageCount, o
       {viewer !== null && <PhotoViewer photos={photos} startIndex={viewer} onClose={() => setViewer(null)} />}
 
       <div className="p-4">
+        {/* Back on your list because someone wrote something new */}
+        {newMessage && (
+          <button
+            type="button"
+            onClick={onToggleOpen}
+            className="mb-3 w-full text-left rounded-xl bg-notify-light px-3 py-2"
+          >
+            <span className="block text-[12px] font-medium text-notify">
+              Back on your list · {newMessage.sender === currentUser ? 'you' : newMessage.sender} sent a new message
+            </span>
+            {(newMessage.text || newMessage.attachments.length > 0) && (
+              <span className="block mt-0.5 text-[14px] text-stone-800 line-clamp-2">
+                {newMessage.text || '📷 Photo'}
+              </span>
+            )}
+          </button>
+        )}
         <div className="flex items-center gap-2 text-[12px] text-stone-500">
           <Avatar name={r.sender} size={22} profile />
           <span className="truncate">
@@ -276,7 +296,7 @@ function UpNextCard({ reminder: r, currentUser, onDone, onLater, messageCount, o
 }
 
 // One line in the list: swipe right to mark done, left for later; tap to open it
-function QueueRow({ reminder: r, currentUser, onDone, onLater, hasNewMessage, onOpen, mode }: HomeQueueProps & { reminder: Reminder; onOpen: () => void }) {
+function QueueRow({ reminder: r, currentUser, onDone, onLater, hasNewMessage, latestMessage, onOpen, mode }: HomeQueueProps & { reminder: Reminder; onOpen: () => void }) {
   const explore = mode === 'explore';
   const type = categoryOf(r);
   const Icon = type ? CATEGORY_ICON[type] : MessageCircle;
@@ -286,8 +306,8 @@ function QueueRow({ reminder: r, currentUser, onDone, onLater, hasNewMessage, on
   const who = r.sender === currentUser ? 'You' : r.sender;
   return (
     <SwipeToAct
-      onRight={todos || isNew ? undefined : () => onDone(r.id)}
-      onLeft={isNew || explore ? undefined : () => onLater(r.id)}
+      onRight={todos && !isNew ? undefined : () => onDone(r.id)}
+      onLeft={explore ? undefined : () => onLater(r.id)}
       stay={explore}
     >
       <button type="button" onClick={onOpen} className="w-full flex items-center gap-3 py-3 text-left bg-[#FBF6EC]">
@@ -306,7 +326,10 @@ function QueueRow({ reminder: r, currentUser, onDone, onLater, hasNewMessage, on
           {(todos || isNew) && (
             <span className="block text-[12px] text-stone-500 truncate">
               {todos ? `To-do ${done}/${todos.length}` : ''}
-              {isNew && <span className="text-notify">New message</span>}
+              {isNew && (() => {
+                const m = latestMessage?.(r.id);
+                return <span className="text-notify">New message{m?.text ? `: ${m.text}` : m?.attachments.length ? ': 📷 Photo' : ''}</span>;
+              })()}
             </span>
           )}
         </span>

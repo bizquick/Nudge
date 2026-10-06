@@ -20,6 +20,7 @@ import nIconTonal from '../imports/n-icon-tonal.png';
 import { supabase } from './utils/supabase/client';
 import { registerPush, unregisterPush, setBadge, type PushTarget } from './utils/push';
 import { syncShareMenu, clearShareMenu } from './utils/shareBridge';
+import { cleanLinkTitle } from './utils/cleanTitle';
 import { App as CapacitorApp } from '@capacitor/app';
 import { Share } from '@capacitor/share';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
@@ -145,7 +146,8 @@ function rowToReminder(row: any, reactions: Reaction[] = [], voters: string[] = 
   return {
     id: row.id,
     type: row.type ?? null,
-    title: row.title,
+    // Links from social apps come with messy titles (hashtags, "on TikTok:"…); tidy them for display
+    title: url ? cleanLinkTitle(row.title, url) || row.title : row.title,
     content: row.content,
     url,
     previewImage: row.preview_image || undefined,
@@ -1395,12 +1397,20 @@ export default function App() {
   // A message counts as new until YOU open the nudge — someone else checking it doesn't
   // hide it from you. (Nudges you never opened before this feature only count newer messages.)
   const hasNewMessages = (id: string) => {
-    const r = reminders.find(x => x.id === id);
     const latest = latestOtherMessage.get(id);
-    if (!r || !latest || !isDone(r)) return false;
+    if (!latest) return false;
     return latest > (seenAt[id] ?? NEW_MESSAGES_SINCE);
   };
-  const reopenedReminders = allUserReminders.filter(r => hasNewMessages(r.id));
+  // The newest message from someone else on a nudge (for the "back on your list" note)
+  const latestMessageOf = (id: string) => {
+    let found: Message | null = null;
+    shownMessages.forEach(m => { if (m.reminderId === id && m.sender !== currentUser && (!found || m.createdAt > found.createdAt)) found = m; });
+    return found as Message | null;
+  };
+  // A new comment always brings a nudge back to your Home as unread — even one you
+  // already checked, or one you sent — until you've looked at it
+  const reopenedReminders = allUserReminders.filter(r =>
+    hasNewMessages(r.id) && (isDone(r) || !homeReminders.includes(r)));
   // The red number on Home and the app icon: new nudges plus checked ones with new messages
   const homeBadge = unreadCount + reopenedReminders.length + requests.filter(q => !blockedNames.has(q.sender)).length;
   // Pull to refresh: drag the list down from the very top and let go to reload
@@ -1902,14 +1912,20 @@ export default function App() {
     );
     const now = base.filter(r => !laterAt[r.id]);
     const later = base.filter(r => laterAt[r.id]).sort((a, b) => laterAt[a.id] - laterAt[b.id]);
-    return [...now, ...later];
+    // Nudges back because of a new message go first, like a new nudge would
+    return [...reopenedReminders.filter(r => !laterAt[r.id]), ...now, ...reopenedReminders.filter(r => laterAt[r.id]), ...later];
   })();
   const homeQueue = queuePerson ? fullQueue.filter(r => queueKeyOf(r) === queuePerson) : fullQueue;
+  // Gone through everything from that friend? Back to your whole list
+  const personQueueEmpty = !!queuePerson && homeQueue.length === 0;
+  useEffect(() => {
+    if (personQueueEmpty) setQueuePerson(null);
+  }, [personQueueEmpty]);
 
   // The friends (and groups) with something in your queue, most first
   const queuePeople = (() => {
     const map = new Map<string, { key: string; label: string; avatar: string; pic?: string; count: number }>();
-    [...fullQueue, ...reopenedReminders].forEach(r => {
+    fullQueue.forEach(r => {
       const key = queueKeyOf(r);
       const existing = map.get(key);
       if (existing) { existing.count++; return; }
@@ -1944,7 +1960,7 @@ export default function App() {
       })}
     </div>
   ) : null;
-  const queueLeft = fullQueue.filter(r => !isDone(r)).length + reopenedReminders.length;
+  const queueLeft = fullQueue.length;
 
   // Your checks by day (for "done today", the week dots, and your streak)
   const checkDays = new Set(
@@ -1966,7 +1982,9 @@ export default function App() {
 
   const handleQueueDone = (id: string) => {
     const r = reminders.find(x => x.id === id);
-    if (r && !r.checkedOut) handleToggleCheckedOut(id);
+    // Back because of a new message? Marking it done means you've seen that message
+    if (hasNewMessages(id)) markSeen(id);
+    if (r && !r.checkedOut && !r.todoItems && r.recipients.includes(currentUser)) handleToggleCheckedOut(id);
     if (laterAt[id]) { const next = { ...laterAt }; delete next[id]; saveLater(next); }
     if (expandedId === id) setExpandedId(null);
   };
@@ -2323,7 +2341,10 @@ export default function App() {
         style={{ WebkitOverflowScrolling: 'touch' }}
         // Tapping anywhere outside an open nudge closes it (a checked nudge then leaves Unread)
         onClick={(e) => {
-          if (expandedId && !(e.target as HTMLElement).closest('[data-nudge-card], button, a, input, textarea')) setExpandedId(null);
+          const onSomething = (e.target as HTMLElement).closest('[data-nudge-card], button, a, input, textarea');
+          if (expandedId && !onSomething) setExpandedId(null);
+          // Looking at one friend's nudges on Home? Tapping anywhere else goes back to all of them
+          if (queuePerson && !onSomething && mobileTab === 'inbox' && !selectedSender) setQueuePerson(null);
         }}
       >
         {/* Pull-to-refresh spinner: grows as you drag down from the top */}
@@ -2387,7 +2408,8 @@ export default function App() {
             <HomeQueue
               currentUser={currentUser}
               queue={homeQueue}
-              withNewMessages={queuePerson ? reopenedReminders.filter(r => queueKeyOf(r) === queuePerson) : reopenedReminders}
+              withNewMessages={[]}
+              latestMessage={latestMessageOf}
               messageCount={(id) => shownMessages.filter(m => m.reminderId === id).length}
               hasNewMessage={hasNewMessages}
               expandedId={expandedId}
