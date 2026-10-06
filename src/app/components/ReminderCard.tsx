@@ -189,6 +189,9 @@ export function ReminderCard({
   const msgFileRef = useRef<HTMLInputElement>(null);
   const msgBoxRef = useRef<HTMLTextAreaElement>(null);
   const [showMsgEmoji, setShowMsgEmoji] = useState(false);
+  // While you're typing a message, the reactions/buttons row underneath steps aside
+  const [typing, setTyping] = useState(false);
+  const typingTimer = useRef<ReturnType<typeof setTimeout>>();
   const addMessagePhotos = (files: File[]) => {
     files.filter(f => f.type.startsWith('image/')).slice(0, 6).forEach(async f => {
       setMsgUploading(n => n + 1);
@@ -718,7 +721,7 @@ export function ReminderCard({
           </button>
 
           {showMessages && (
-            <div className="px-5 pb-5 pt-2 bg-stone-50" onClick={(e) => e.stopPropagation()}>
+            <div className={`px-5 pb-5 pt-2 bg-stone-50 ${typing ? (rich ? 'rounded-b-[14px]' : 'rounded-b-[10px]') : ''}`} onClick={(e) => e.stopPropagation()}>
               {/* Message Thread */}
               {messages.length > 0 && (
                 <div className="space-y-2 mb-4">
@@ -827,6 +830,8 @@ export function ReminderCard({
                       if (pasted.length) { e.preventDefault(); addMessagePhotos(pasted); }
                     }}
                     placeholder="Message"
+                    onFocus={() => { clearTimeout(typingTimer.current); setTyping(true); }}
+                    onBlur={() => { typingTimer.current = setTimeout(() => setTyping(false), 150); }}
                     enterKeyHint="send"
                     className="flex-1 min-w-0 py-[7px] text-base leading-[22px] bg-transparent resize-none focus:outline-none placeholder:text-stone-400"
                     aria-label="Message"
@@ -855,8 +860,8 @@ export function ReminderCard({
         </div>
       )}
 
-      {/* Reactions Section - Only show when expanded */}
-      {isSelected && (
+      {/* Reactions Section - Only show when expanded (and not while typing a message) */}
+      {isSelected && !typing && (
         <div className={`border-t border-stone-200 px-5 py-3 bg-stone-50 ${rich ? 'rounded-b-[14px]' : 'rounded-b-[10px]'}`}>
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-2 flex-wrap">

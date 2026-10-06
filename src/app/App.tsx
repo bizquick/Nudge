@@ -359,6 +359,18 @@ export default function App() {
   // ...opened straight into its conversation (from Chat history)
   const [gridOpenChat, setGridOpenChat] = useState(false);
   const [showChatHistory, setShowChatHistory] = useState(false);
+  // Typing a message on a nudge: the bars along the bottom step aside until you're done
+  const [typingMessage, setTypingMessage] = useState(false);
+  useEffect(() => {
+    const isMessageBox = (el: EventTarget | null) => el instanceof HTMLTextAreaElement && el.getAttribute('aria-label') === 'Message';
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const onIn = (e: FocusEvent) => { if (isMessageBox(e.target)) { clearTimeout(timer); setTypingMessage(true); } };
+    // A short wait, so tapping Send (which briefly takes focus) doesn't make things jump
+    const onOut = (e: FocusEvent) => { if (isMessageBox(e.target)) timer = setTimeout(() => setTypingMessage(isMessageBox(document.activeElement)), 150); };
+    document.addEventListener('focusin', onIn);
+    document.addEventListener('focusout', onOut);
+    return () => { document.removeEventListener('focusin', onIn); document.removeEventListener('focusout', onOut); clearTimeout(timer); };
+  }, []);
   const [sortSettings, setSortSettings] = useState<Record<'unread' | 'favorited' | 'archived', SortSetting>>(() => ({
     unread: loadSortSetting('unread'),
     favorited: loadSortSetting('favorited'),
@@ -2943,7 +2955,7 @@ export default function App() {
       </div>
 
       {/* Chat buttons, like a message bar: send a new nudge here, or flip to the Checked ones */}
-      {selectedSender && (
+      {selectedSender && !typingMessage && (
         <div className="shrink-0 border-t border-stone-200 px-4 py-2.5" style={{ background: '#FBF6EC' }}>
           <div className="max-w-2xl mx-auto flex gap-2">
             {selectedSender !== 'My Reminders' && (
@@ -2976,7 +2988,7 @@ export default function App() {
 
       {/* Bottom Tab Bar — a normal flex child now, not fixed, so the scroll area above sizes correctly */}
       <div
-        className="shrink-0 bg-white border-t border-stone-200 flex z-20"
+        className={`shrink-0 bg-white border-t border-stone-200 flex z-20 ${typingMessage ? 'hidden' : ''}`}
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
       {([

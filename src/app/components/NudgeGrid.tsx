@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Check, ListChecks, MessageCircle, X, Play } from 'lucide-react';
 import type { Reminder, ReminderType } from '../App';
 import { Avatar } from './Avatar';
@@ -118,27 +118,56 @@ function Tile({ r, currentUser, isNew, onOpen }: { r: Reminder; currentUser: str
   );
 }
 
-/** The normal nudge, opened from a tile: slides up over the grid */
+/** The part of the screen the keyboard isn't covering */
+function useVisibleArea() {
+  const read = () => ({ top: window.visualViewport?.offsetTop ?? 0, height: window.visualViewport?.height ?? window.innerHeight });
+  const [area, setArea] = useState(read);
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => setArea(read());
+    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
+    return () => { vv.removeEventListener('resize', update); vv.removeEventListener('scroll', update); };
+  }, []);
+  return area;
+}
+
+/** The normal nudge, opened from a tile: the card itself floats over the grid */
 export function NudgeSheet({ onClose, children }: { onClose: () => void; children: ReactNode }) {
+  const area = useVisibleArea();
+  // The tallest the visible area has been is the screen without a keyboard
+  const [fullHeight, setFullHeight] = useState(area.height);
+  useEffect(() => { if (area.height > fullHeight) setFullHeight(area.height); }, [area.height, fullHeight]);
+  const keyboardUp = area.height < fullHeight - 120;
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = prev; };
   }, []);
   return (
-    <div className="fixed inset-0 z-40 bg-black/40 flex items-end justify-center" onClick={onClose}>
+    <div
+      className="fixed inset-x-0 z-40 bg-stone-900/35 backdrop-blur-md nudge-pop-backdrop"
+      style={{ top: area.top, height: area.height }}
+      onClick={onClose}
+    >
       <div
-        className="w-full max-w-2xl max-h-[92%] flex flex-col rounded-t-3xl bg-[#FBF6EC] shadow-2xl"
-        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
-        onClick={(e) => e.stopPropagation()}
+        className={`h-full overflow-y-auto overscroll-contain flex flex-col px-4 ${keyboardUp ? 'justify-end' : 'justify-center'}`}
+        style={{ paddingTop: keyboardUp ? 12 : 'calc(env(safe-area-inset-top) + 12px)', paddingBottom: keyboardUp ? 12 : 'calc(env(safe-area-inset-bottom) + 12px)' }}
       >
-        <div className="shrink-0 relative flex justify-center h-11 pt-2">
-          <span className="w-10 h-1.5 rounded-full bg-stone-300" />
-          <button onClick={onClose} className="absolute right-3 top-2 w-8 h-8 rounded-full bg-stone-200/80 text-stone-600 flex items-center justify-center" aria-label="Close">
-            <X className="w-4 h-4" />
-          </button>
+        {/* Only the card catches taps; anywhere around it closes */}
+        <div className="relative w-full max-w-lg mx-auto nudge-pop rounded-2xl shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          {children}
         </div>
-        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 pt-1 pb-4">{children}</div>
+        {!keyboardUp && (
+          <button
+            onClick={onClose}
+            className="mt-4 mx-auto shrink-0 w-11 h-11 rounded-full bg-white/90 text-stone-700 shadow flex items-center justify-center active:bg-white"
+            aria-label="Close"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        )}
       </div>
     </div>
   );
