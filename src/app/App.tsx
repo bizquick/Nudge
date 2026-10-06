@@ -1,7 +1,8 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import { ReminderList } from './components/ReminderList';
 import { QuickSendModal } from './components/QuickSendModal';
-import { SortMenu, sortReminders, loadSortSetting, saveSortSetting, type SortSetting } from './components/SortMenu';
+import { SortMenu, sortReminders, loadSortSetting, saveSortSetting, type SortSetting, ViewToggle, loadListView, saveListView, type ListView } from './components/SortMenu';
+import { NudgeGrid, NudgeSheet } from './components/NudgeGrid';
 import { FolderBar, type Folder } from './components/FolderBar';
 import { SwipeRow } from './components/SwipeRow';
 import { Avatar, AvatarContext, ProfileContext, ProfileLink } from './components/Avatar';
@@ -342,6 +343,18 @@ export default function App() {
   };
 
   // Each Home list (Unread / Favorites / Archive) remembers its own sort choice
+  // List or grid, per list
+  const [listViews, setListViews] = useState<Record<'unread' | 'favorited' | 'archived', ListView>>(() => ({
+    unread: loadListView('unread'),
+    favorited: loadListView('favorited'),
+    archived: loadListView('archived')
+  }));
+  const changeListView = (list: 'unread' | 'favorited' | 'archived', view: ListView) => {
+    setListViews(prev => ({ ...prev, [list]: view }));
+    saveListView(list, view);
+  };
+  // A nudge opened from a grid tile
+  const [gridOpenId, setGridOpenId] = useState<string | null>(null);
   const [sortSettings, setSortSettings] = useState<Record<'unread' | 'favorited' | 'archived', SortSetting>>(() => ({
     unread: loadSortSetting('unread'),
     favorited: loadSortSetting('favorited'),
@@ -2460,7 +2473,15 @@ export default function App() {
               onLater={handleLater}
               requestsBanner={requestsBanner}
               peopleRow={peopleRow}
-              sortControl={<SortMenu value={sortSettings.unread} onChange={(st) => changeSort('unread', st)} />}
+              sortControl={
+                <div className="flex items-center gap-1.5">
+                  <SortMenu value={sortSettings.unread} onChange={(st) => changeSort('unread', st)} />
+                  <ViewToggle value={listViews.unread} onChange={(v) => changeListView('unread', v)} />
+                </div>
+              }
+              renderRest={listViews.unread === 'grid'
+                ? (rest) => <NudgeGrid reminders={rest} currentUser={currentUser} onOpen={setGridOpenId} hasNewMessage={hasNewMessages} />
+                : undefined}
               doneToday={doneToday}
               week={week}
               streak={streak}
@@ -2487,10 +2508,19 @@ export default function App() {
                 />
               );
             })()}
-            <div className="flex justify-end -mr-1 mb-1">
+            <div className="flex justify-end items-center gap-1.5 mb-1">
               <SortMenu value={sortSettings[allMessagesFilter]} onChange={(st) => changeSort(allMessagesFilter, st)} />
+              <ViewToggle value={listViews[allMessagesFilter]} onChange={(v) => changeListView(allMessagesFilter, v)} />
             </div>
-            {renderHomeList(displayedReminders)}
+            {listViews[allMessagesFilter] === 'grid' ? (
+              <NudgeGrid
+                reminders={displayedReminders}
+                currentUser={currentUser}
+                onOpen={setGridOpenId}
+                hasNewMessage={hasNewMessages}
+                emptyMessage={allMessagesFilter === 'archived' ? 'Nothing checked yet. Nudges you check off will wait here.' : 'No favorites here yet.'}
+              />
+            ) : renderHomeList(displayedReminders)}
             </>
           ) : mobileTab === 'popular' ? (
             <div>
@@ -3021,6 +3051,15 @@ export default function App() {
           onChangePicture={() => setGroupPictureFor(selectedGroupKey)}
         />
       )}
+      {gridOpenId && (() => {
+        const r = allUserReminders.find(x => x.id === gridOpenId);
+        if (!r) return null;
+        return (
+          <NudgeSheet onClose={() => setGridOpenId(null)}>
+            {renderHomeList([r], undefined, { openIds: new Set([r.id]) })}
+          </NudgeSheet>
+        );
+      })()}
       {showFriends && (
         <FriendsPage
           friends={friends}

@@ -9,18 +9,18 @@ import { guessCategory } from '../utils/guessCategory';
 import { LinkHero } from './LinkCard';
 
 // The category to show: the sender's pick, or the app's best guess from the content
-const categoryOf = (r: Reminder): ReminderType | null =>
+export const categoryOf = (r: Reminder): ReminderType | null =>
   r.type ?? (r.todoItems ? null : guessCategory({ url: r.url, title: r.title, content: r.content, attachments: r.attachments }));
 
 // Home as a queue: one big "Up next" nudge to deal with, then a simple list of
 // what's after it. Done checks it off; Later sends it to the back of the line.
 
-const CATEGORY_TILE: Record<ReminderType, string> = {
+export const CATEGORY_TILE: Record<ReminderType, string> = {
   website: 'bg-blue-50 text-blue-600', music: 'bg-purple-50 text-purple-600', video: 'bg-red-50 text-red-600',
   text: 'bg-stone-100 text-stone-600', unnecessary: 'bg-pink-50 text-pink-600', interesting: 'bg-teal-50 text-teal-600',
   food: 'bg-green-50 text-green-700', lifehack: 'bg-amber-50 text-amber-600',
 };
-const CATEGORY_ICON = { website: Globe, music: Music, video: Video, text: TypeIcon, unnecessary: Sparkles, interesting: Sparkles, food: UtensilsCrossed, lifehack: Lightbulb };
+export const CATEGORY_ICON = { website: Globe, music: Music, video: Video, text: TypeIcon, unnecessary: Sparkles, interesting: Sparkles, food: UtensilsCrossed, lifehack: Lightbulb };
 
 // "now", "5m", "2h", "Tue", "Sep 3"
 function ago(date: Date) {
@@ -63,6 +63,8 @@ interface HomeQueueProps {
   /** Slim banner for nudge requests (or null) */
   requestsBanner: ReactNode;
   sortControl: ReactNode;
+  /** Show what's after Up next your own way (the grid) instead of rows */
+  renderRest?: (rest: Reminder[]) => ReactNode;
   doneToday: number;
   /** Last 7 days, oldest first: did you check anything that day? */
   week: boolean[];
@@ -112,6 +114,7 @@ export function HomeQueue(props: HomeQueueProps) {
           <div className={`${props.peopleRow ? 'mt-1' : 'mt-5'} mb-1 flex items-center justify-end`}>
             {props.sortControl}
           </div>
+          {props.renderRest ? props.renderRest(rest) : (
           <div className="border-t border-stone-200/80">
             {rest.map(r => !explore && expandedId === r.id ? (
               <div key={r.id} className="py-2 border-b border-stone-200/80">{renderFull(r)}</div>
@@ -125,9 +128,10 @@ export function HomeQueue(props: HomeQueueProps) {
               />
             ))}
           </div>
-          <p className="mt-2 text-[11px] text-stone-400">
+          )}
+          {!props.renderRest && <p className="mt-2 text-[11px] text-stone-400">
             {explore ? 'Tap one to open it up top · swipe right to check it' : 'Swipe right to check · left for later'}
-          </p>
+          </p>}
         </>
       )}
       {props.footer}

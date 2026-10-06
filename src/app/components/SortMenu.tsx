@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowUpDown, Check } from 'lucide-react';
+import { ArrowUpDown, Check, List, LayoutGrid } from 'lucide-react';
 import type { Reminder, ReminderType } from '../App';
 
 export type SortKey = 'custom' | 'date' | 'sender' | 'category';
@@ -144,6 +144,45 @@ export function SortMenu({ value, onChange }: { value: SortSetting; onChange: (s
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// List or grid, remembered for each list on this device
+export type ListView = 'list' | 'grid';
+
+export function loadListView(listName: string): ListView {
+  try {
+    return localStorage.getItem(`nudge.view.${listName}`) === 'grid' ? 'grid' : 'list';
+  } catch {
+    return 'list';
+  }
+}
+
+export function saveListView(listName: string, view: ListView) {
+  try {
+    localStorage.setItem(`nudge.view.${listName}`, view);
+  } catch {
+    // storage unavailable — the choice just won't be remembered
+  }
+}
+
+export function ViewToggle({ value, onChange }: { value: ListView; onChange: (v: ListView) => void }) {
+  return (
+    <div className="flex rounded-lg bg-stone-200/60 p-0.5" role="radiogroup" aria-label="Show as">
+      {([['list', List, 'List'], ['grid', LayoutGrid, 'Grid']] as const).map(([v, Icon, label]) => (
+        <button
+          key={v}
+          type="button"
+          role="radio"
+          aria-checked={value === v}
+          aria-label={label}
+          onClick={() => onChange(v)}
+          className={`w-8 h-7 rounded-md flex items-center justify-center transition-colors ${value === v ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-500'}`}
+        >
+          <Icon className="w-4 h-4" />
+        </button>
+      ))}
     </div>
   );
 }
