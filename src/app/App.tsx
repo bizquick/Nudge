@@ -264,6 +264,54 @@ function groupKeyFor(r: Reminder): string | null {
   return participants.join('|');
 }
 
+// What the app loads at launch (raw rows, so it can also be saved and reused next launch)
+interface LoadedData {
+  reminderRows: any[];
+  reactionRows: any[];
+  messageRows: any[];
+  contactPrefRows: any[];
+  voteRows: any[];
+  folderRows: { id: string; name: string }[] | null;
+  folderItemRows: { reminder_id: string; folder_id: string }[] | null;
+  userId: string | null;
+  favRows: { reminder_id: string }[] | null;
+  avatarRows: { display_name: string; avatar: string }[] | null;
+  noteRows: { chat_key: string; note: string }[] | null;
+  readRows: { reminder_id: string; seen_at: string }[] | null;
+  stateRows: any[] | null;
+  connRows: any[] | null;
+  reqRows: any[] | null;
+  pendRows: any[] | null;
+  groupPicRows: { group_key: string; avatar: string }[] | null;
+  isAdmin: boolean;
+  muteRows: { target: string }[] | null;
+}
+
+// A copy of the last launch's data on this phone, so the app opens instantly
+const LAUNCH_CACHE = 'addly.launchCache.v1';
+function saveLaunchCache(d: LoadedData) {
+  try {
+    const me = localStorage.getItem('addly.cacheOwner');
+    if (!me) return;
+    // Keep it a sensible size: the most recent 600 messages is plenty for a first screen
+    const trimmed = { ...d, messageRows: d.messageRows.slice(-600) };
+    localStorage.setItem(LAUNCH_CACHE, JSON.stringify({ owner: me, savedAt: Date.now(), data: trimmed }));
+  } catch { /* too big or storage unavailable: just load normally next time */ }
+}
+function readLaunchCache(me: string): LoadedData | null {
+  try {
+    localStorage.setItem('addly.cacheOwner', me);
+    const saved = JSON.parse(localStorage.getItem(LAUNCH_CACHE) || 'null');
+    if (!saved || saved.owner !== me || !saved.data) return null;
+    return saved.data as LoadedData;
+  } catch {
+    return null;
+  }
+}
+function clearLaunchCache() {
+  try { localStorage.removeItem(LAUNCH_CACHE); localStorage.removeItem('addly.cacheOwner'); localStorage.removeItem('addly.cacheOwnerId'); } catch { /* fine */ }
+}
+
 export default function App() {
   const [currentUser, setCurrentUser] = useState<string | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
@@ -451,11 +499,13 @@ export default function App() {
       .select('display_name')
       .eq('id', userId)
       .maybeSingle();
-    if (error || !data) {
+    if (error) return; // offline or a hiccup: stay signed in, don't kick anyone out
+    if (!data) {
       setCurrentUser(null);
       return;
     }
     setCurrentUser(data.display_name);
+    try { localStorage.setItem('addly.cacheOwnerId', userId); localStorage.setItem('addly.cacheOwner', data.display_name); } catch { /* fine */ }
   }, []);
 
   useEffect(() => {
@@ -465,7 +515,16 @@ export default function App() {
       if (cancelled) return;
       const userId = data.session?.user?.id;
       if (userId) {
-        loadProfile(userId).finally(() => { if (!cancelled) setAuthChecked(true); });
+        // Same person as last time? Open straight away; the server check runs alongside
+        let known: string | null = null;
+        try { if (localStorage.getItem('addly.cacheOwnerId') === userId) known = localStorage.getItem('addly.cacheOwner'); } catch { /* fine */ }
+        if (known) {
+          setCurrentUser(known);
+          setAuthChecked(true);
+          loadProfile(userId);
+        } else {
+          loadProfile(userId).finally(() => { if (!cancelled) setAuthChecked(true); });
+        }
       } else {
         setAuthChecked(true);
       }
@@ -486,6 +545,7 @@ export default function App() {
   const handleSignOut = async () => {
     await unregisterPush(); // before signing out, while we're still allowed to remove this phone's token
     await clearShareMenu(); // the Share menu stops being able to send as you
+    clearLaunchCache(); // don't show this account's nudges to whoever signs in next
     await supabase.auth.signOut();
     setCurrentUser(null);
     setReminders([]);
@@ -497,87 +557,102 @@ export default function App() {
   const [hiddenContacts, setHiddenContacts] = useState<{ name: string; status: 'archived' | 'deleted' }[]>([]);
   const [showArchivedContacts, setShowArchivedContacts] = useState(false);
 
+  // Everything the app shows, fetched from the server in ONE round (all requests at
+  // once, rather than one after another), and remembered on this phone so the next
+  // launch can show it instantly while fresh data loads in the background.
+  const applyLoaded = useCallback((d: LoadedData) => {
+    const reactionMap = groupReactions(d.reactionRows);
+    const voteMap = groupVotes(d.voteRows);
+    setReminders(d.reminderRows.map(row => rowToReminder(row, reactionMap[row.id] || [], voteMap[row.id] || [])));
+    setMessages(d.messageRows.map(rowToMessage));
+    setHiddenContacts(d.contactPrefRows.map(c => ({ name: c.contact_name, status: c.status as 'archived' | 'deleted' })));
+    if (d.folderRows && d.folderItemRows) {
+      setFolders(d.folderRows);
+      setFolderOfReminder(Object.fromEntries(d.folderItemRows.map(i => [i.reminder_id, i.folder_id])));
+      setFoldersReady(true);
+    } else setFoldersReady(false);
+    setCurrentUserId(d.userId);
+    if (d.favRows) setFavoriteIds(new Set(d.favRows.map(f => f.reminder_id)));
+    if (d.avatarRows) setAvatars(Object.fromEntries(d.avatarRows.map(a => [a.display_name, a.avatar])));
+    if (d.noteRows) setChatNotes(Object.fromEntries(d.noteRows.map(n => [n.chat_key, n.note])));
+    if (d.readRows) setSeenAt(Object.fromEntries(d.readRows.map(r => [r.reminder_id, new Date(r.seen_at)])));
+    if (d.stateRows) setNudgeStates(d.stateRows as NudgeState[]);
+    if (d.connRows) setConnections(d.connRows as Connection[]);
+    setRequests((d.reqRows || []).map((q: NudgeRequest) => ({ ...q, waiting: Number(q.waiting) })));
+    const pend: Record<string, string[]> = {};
+    (d.pendRows || []).forEach((p: { reminder_id: string; recipient: string }) => { (pend[p.reminder_id] ??= []).push(p.recipient); });
+    setPendingSent(pend);
+    if (d.groupPicRows) setGroupAvatars(Object.fromEntries(d.groupPicRows.filter(g => g.avatar).map(g => [g.group_key, g.avatar])));
+    setIsAdmin(d.isAdmin);
+    if (d.muteRows) setMutes(new Set(d.muteRows.map(m => m.target)));
+  }, []);
+
   const loadData = useCallback(async () => {
-    const [{ data: reminderRows, error: reminderErr }, { data: reactionRows, error: reactionErr }, { data: messageRows, error: messageErr }, { data: contactPrefRows, error: contactPrefErr }, { data: voteRows, error: voteErr }] = await Promise.all([
+    const optional = <T,>(r: { data: T | null; error: unknown }, what: string): T | null => {
+      if (r.error) { console.warn(`${what} unavailable:`, r.error); return null; }
+      return r.data;
+    };
+    const [
+      reminders, reactions, messageRes, contactPrefs, votes,
+      folderRes, folderItemRes, sessionRes,
+      favRes, avatarRes, noteRes, readRes,
+      stateRes, connRes, reqRes, pendRes, groupPicRes, adminRes, muteRes,
+    ] = await Promise.all([
       supabase.from('reminders').select('*').order('created_at', { ascending: false }),
       supabase.from('reminder_reactions').select('*'),
       supabase.from('messages').select('*').order('created_at', { ascending: true }),
       supabase.from('contact_prefs').select('contact_name, status'),
-      supabase.from('reminder_votes').select('*')
-    ]);
-
-    if (reminderErr || reactionErr || messageErr || contactPrefErr || voteErr) {
-      console.error(reminderErr || reactionErr || messageErr || contactPrefErr || voteErr);
-      setLoadError("Couldn't reach the server. Check your connection and Supabase setup.");
-      return;
-    }
-
-    const reactionMap = groupReactions(reactionRows || []);
-    const voteMap = groupVotes(voteRows || []);
-    setReminders((reminderRows || []).map(row => rowToReminder(row, reactionMap[row.id] || [], voteMap[row.id] || [])));
-    setMessages((messageRows || []).map(rowToMessage));
-    setHiddenContacts((contactPrefRows || []).map(c => ({ name: c.contact_name, status: c.status as 'archived' | 'deleted' })));
-    setLoadError(null);
-
-    const [{ data: folderRows, error: folderErr }, { data: folderItemRows, error: folderItemErr }] = await Promise.all([
+      supabase.from('reminder_votes').select('*'),
       supabase.from('favorite_folders').select('id, name').order('created_at', { ascending: true }),
-      supabase.from('favorite_folder_items').select('reminder_id, folder_id')
-    ]);
-    if (folderErr || folderItemErr) {
-      // Most likely the one-time folder setup hasn't been run in Supabase yet
-      console.warn('Folders unavailable:', folderErr || folderItemErr);
-      setFoldersReady(false);
-    } else {
-      setFolders(folderRows || []);
-      setFolderOfReminder(Object.fromEntries((folderItemRows || []).map(i => [i.reminder_id, i.folder_id])));
-      setFoldersReady(true);
-    }
-
-    const { data: { session } } = await supabase.auth.getSession();
-    setCurrentUserId(session?.user?.id ?? null);
-
-    const [{ data: favRows, error: favErr }, { data: avatarRows, error: avatarErr }, { data: noteRows, error: noteErr }] = await Promise.all([
+      supabase.from('favorite_folder_items').select('reminder_id, folder_id'),
+      supabase.auth.getSession(),
       supabase.from('user_favorites').select('reminder_id'),
       // Only pictures of people you know come back (the database limits it)
       supabase.from('profiles').select('display_name, avatar').not('avatar', 'is', null),
       supabase.from('chat_notes').select('chat_key, note'),
-    ]);
-    if (favErr) console.warn('Personal favorites unavailable:', favErr);
-    else setFavoriteIds(new Set((favRows || []).map(f => f.reminder_id)));
-    if (avatarErr) console.warn('Pictures unavailable:', avatarErr);
-    else setAvatars(Object.fromEntries((avatarRows || []).map(a => [a.display_name, a.avatar])));
-    if (noteErr) console.warn('Chat descriptions unavailable:', noteErr);
-    else setChatNotes(Object.fromEntries((noteRows || []).map(n => [n.chat_key, n.note])));
-
-    const { data: readRows, error: readErr } = await supabase.from('nudge_reads').select('reminder_id, seen_at');
-    if (readErr) console.warn('Read times unavailable:', readErr);
-    else setSeenAt(Object.fromEntries((readRows || []).map(r => [r.reminder_id, new Date(r.seen_at)])));
-
-    // Personal checks, connections, requests, and who hasn't accepted your nudges yet
-    const [{ data: stateRows, error: stateErr }, { data: connRows, error: connErr }, { data: reqRows }, { data: pendRows }] = await Promise.all([
+      supabase.from('nudge_reads').select('reminder_id, seen_at'),
       supabase.from('nudge_user_state').select('owner_name, reminder_id, checked_at, archived_at, popular_checked_at, explore_shown_at, explore_done_at'),
       supabase.from('connections').select('other_name, status, declined_at'),
       supabase.rpc('my_nudge_requests'),
       supabase.rpc('my_pending_recipients'),
+      supabase.from('group_avatars').select('group_key, avatar'),
+      supabase.rpc('is_admin'),
+      supabase.from('mutes').select('target'),
     ]);
-    if (stateErr) console.warn('Personal state unavailable:', stateErr); else setNudgeStates((stateRows || []) as NudgeState[]);
-    if (connErr) console.warn('Connections unavailable:', connErr); else setConnections((connRows || []) as Connection[]);
-    setRequests(((reqRows || []) as NudgeRequest[]).map(q => ({ ...q, waiting: Number(q.waiting) })));
-    const pend: Record<string, string[]> = {};
-    ((pendRows || []) as { reminder_id: string; recipient: string }[]).forEach(p => { (pend[p.reminder_id] ??= []).push(p.recipient); });
-    setPendingSent(pend);
 
-    const { data: groupPicRows, error: groupPicErr } = await supabase.from('group_avatars').select('group_key, avatar');
-    if (groupPicErr) console.warn('Group pictures unavailable:', groupPicErr);
-    else setGroupAvatars(Object.fromEntries((groupPicRows || []).filter(g => g.avatar).map(g => [g.group_key, g.avatar])));
-
-    const { data: adminFlag } = await supabase.rpc('is_admin');
-    setIsAdmin(adminFlag === true);
-
-    const { data: muteRows, error: muteErr } = await supabase.from('mutes').select('target');
-    if (muteErr) console.warn('Mutes unavailable:', muteErr);
-    else setMutes(new Set((muteRows || []).map(m => m.target)));
-  }, []);
+    const core = reminders.error || reactions.error || messageRes.error || contactPrefs.error || votes.error;
+    if (core) {
+      console.error(core);
+      setLoadError("Couldn't reach the server. Check your connection and Supabase setup.");
+      return;
+    }
+    const folders = optional(folderRes, 'Folders');
+    const folderItems = optional(folderItemRes, 'Folder items');
+    const d: LoadedData = {
+      reminderRows: reminders.data || [],
+      reactionRows: reactions.data || [],
+      messageRows: messageRes.data || [],
+      contactPrefRows: contactPrefs.data || [],
+      voteRows: votes.data || [],
+      folderRows: folders && folderItems ? folders : null,
+      folderItemRows: folders && folderItems ? folderItems : null,
+      userId: sessionRes.data.session?.user?.id ?? null,
+      favRows: optional(favRes, 'Personal favorites'),
+      avatarRows: optional(avatarRes, 'Pictures'),
+      noteRows: optional(noteRes, 'Chat descriptions'),
+      readRows: optional(readRes, 'Read times'),
+      stateRows: optional(stateRes, 'Personal state'),
+      connRows: optional(connRes, 'Connections'),
+      reqRows: reqRes.error ? [] : reqRes.data,
+      pendRows: pendRes.error ? [] : pendRes.data,
+      groupPicRows: optional(groupPicRes, 'Group pictures'),
+      isAdmin: adminRes.data === true,
+      muteRows: optional(muteRes, 'Mutes'),
+    };
+    applyLoaded(d);
+    setLoadError(null);
+    saveLaunchCache(d);
+  }, [applyLoaded]);
 
   const scheduleRefresh = useCallback(() => {
     if (refreshTimer.current) clearTimeout(refreshTimer.current);
@@ -589,7 +664,14 @@ export default function App() {
     let cancelled = false;
 
     (async () => {
-      setDataLoading(true);
+      // Last time's data first (instant), then the fresh copy
+      const cached = readLaunchCache(currentUser);
+      if (cached) {
+        applyLoaded(cached);
+        setDataLoading(false);
+      } else {
+        setDataLoading(true);
+      }
       await loadData();
       if (!cancelled) setDataLoading(false);
     })();
@@ -612,7 +694,7 @@ export default function App() {
       supabase.removeChannel(channel);
       if (refreshTimer.current) clearTimeout(refreshTimer.current);
     };
-  }, [currentUser, loadData, scheduleRefresh]);
+  }, [currentUser, loadData, scheduleRefresh, applyLoaded]);
 
   useEffect(() => {
     const goOnline = () => { setIsOnline(true); loadData(); };
