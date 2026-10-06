@@ -1,4 +1,4 @@
-import { Globe, Music, Video, Type as TypeIcon, Sparkles, UtensilsCrossed, Lightbulb, ExternalLink, Check, MessageCircle, Send, Archive, Star, SmilePlus, Pencil, Forward, Heart, Globe2, FolderInput, BellOff, ListChecks, FileText, ImagePlus, Loader2, X, ArrowUp, Smile, ChevronRight } from 'lucide-react';
+import { Globe, Music, Video, Type as TypeIcon, Sparkles, UtensilsCrossed, Lightbulb, ExternalLink, Check, MessageCircle, Send, Archive, Star, SmilePlus, Pencil, Forward, Heart, Globe2, FolderInput, BellOff, ListChecks, FileText, ImagePlus, Loader2, X, ArrowUp, Smile } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { Reminder, Message } from '../App';
 import type { Folder } from './FolderBar';
@@ -9,8 +9,6 @@ import { TodoEditor } from './TodoEditor';
 import { LinkCard } from './LinkCard';
 import { EmojiPicker, insertAtCursor } from './EmojiPicker';
 import { MessageText } from './MessageText';
-import { ChatScreen } from './ChatScreen';
-import { createPortal } from 'react-dom';
 import { guessCategory } from '../utils/guessCategory';
 import { uploadAttachment } from '../utils/upload';
 import type { Attachment } from '../App';
@@ -183,7 +181,7 @@ export function ReminderCard({
       <span className="text-xs">{reminder.voters.length}</span>
     </button>
   );
-  const [showMessages, setShowMessages] = useState(false);
+  const [showMessages, setShowMessages] = useState(!!compact);
   // Photos in the conversation: ones waiting to send, and the full-screen viewer
   const [msgPhotos, setMsgPhotos] = useState<Attachment[]>([]);
   const [msgUploading, setMsgUploading] = useState(0);
@@ -256,9 +254,7 @@ export function ReminderCard({
   };
 
   const formatTime = (date: Date) => {
-    const hours = date.getHours().toString().padStart(2, '0');
-    const minutes = date.getMinutes().toString().padStart(2, '0');
-    return `${hours}:${minutes}`;
+    return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
   };
 
   const handleSendMessage = (e: React.FormEvent) => {
@@ -693,204 +689,168 @@ export function ReminderCard({
       </div>
       </>)}
 
-      {/* Messages: a row that opens the conversation full screen, like a chat in Messages */}
+      {/* Messages Section - Only show when expanded */}
       {isSelected && (
         <div className="border-t border-stone-200">
           <button
-            onClick={(e) => { e.stopPropagation(); setShowMessages(true); }}
-            className="w-full px-5 py-3.5 flex items-center gap-3 text-left active:bg-stone-50 transition-colors"
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowMessages(!showMessages);
+            }}
+            className="w-full px-5 py-3 flex items-center justify-between hover:bg-stone-50 transition-colors"
           >
-            <span className={`relative w-9 h-9 shrink-0 rounded-full flex items-center justify-center ${messages.length ? 'bg-blue-500 text-white' : 'bg-stone-100 text-stone-500'}`}>
-              <MessageCircle className="w-[18px] h-[18px]" />
-            </span>
-            <span className="flex-1 min-w-0">
-              {lastMessage ? (
-                <>
-                  <span className="block text-[15px] text-stone-900">
-                    {messages.length} message{messages.length === 1 ? '' : 's'}
-                  </span>
-                  <span className="block text-[13px] text-stone-500 truncate">
-                    {lastMessage.sender === currentUser ? 'You' : lastMessage.sender}: {lastMessage.text || '📷 Photo'}
-                  </span>
-                </>
-              ) : (
-                <>
-                  <span className="block text-[15px] text-stone-900">Start a conversation</span>
-                  <span className="block text-[13px] text-stone-500">Talk about this nudge</span>
-                </>
-              )}
-            </span>
-            <ChevronRight className="w-5 h-5 text-stone-400 shrink-0" />
+            <div className="flex items-center gap-2 text-sm">
+              <MessageCircle className="w-4 h-4" />
+              <span>
+                {messages.length === 0 
+                  ? 'Add a message' 
+                  : `${messages.length} message${messages.length === 1 ? '' : 's'}`}
+              </span>
+            </div>
+            <svg
+              className={`w-4 h-4 transition-transform ${showMessages ? 'rotate-180' : ''}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
           </button>
 
-          {showMessages && createPortal(
-            <ChatScreen
-              title={reminder.title || displayText || 'Nudge'}
-              subtitle={isGroup || reminder.isPublic
-                ? (reminder.groupName || otherParticipants.slice(0, 4).join(', ') + (otherParticipants.length > 4 ? ` +${otherParticipants.length - 4}` : ''))
-                : otherParticipants[0] ? `with ${otherParticipants[0]}` : 'My Nudges'}
-              thumb={reminder.previewImage || photos[0] || null}
-              ThumbIcon={todos ? ListChecks : Icon ?? MessageCircle}
-              onClose={() => { setShowMessages(false); setShowMsgEmoji(false); }}
-              scrollKey={`${messages.length}:${msgPhotos.length}:${msgUploading}`}
-              pinned={
-                <div className="mx-auto w-full max-w-sm rounded-2xl bg-white border border-stone-200 shadow-sm p-3">
-                  <p className="text-[12px] text-stone-500 mb-2">
-                    {reminder.sender === currentUser ? 'You' : reminder.sender} sent this · {formatDate(reminder.createdAt)}
-                  </p>
-                  {reminder.url ? (
-                    <LinkCard url={reminder.url} image={reminder.previewImage} title={reminder.title} />
-                  ) : (
-                    <p className="text-[16px] text-stone-900 [overflow-wrap:anywhere]">{reminder.title}</p>
-                  )}
-                  {reminder.content && reminder.content !== reminder.title && (
-                    <MessageText text={reminder.content} className="mt-2 text-[15px] text-stone-700" />
-                  )}
-                </div>
-              }
-              composer={
-                <>
-                  {/* Photos waiting to be sent with the next message */}
-                  {(msgPhotos.length > 0 || msgUploading > 0) && (
-                    <div className="mb-2 pt-1.5 flex gap-2 overflow-x-auto">
-                      {msgPhotos.map((a, i) => (
-                        <div key={a.url} className="relative shrink-0">
-                          <img src={a.url} alt="" className="w-16 h-16 rounded-xl object-cover" />
-                          <button type="button" onClick={() => setMsgPhotos(prev => prev.filter((_, j) => j !== i))} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-stone-800 text-white flex items-center justify-center" aria-label="Remove photo">
-                            <X className="w-3 h-3" />
-                          </button>
-                        </div>
-                      ))}
-                      {Array.from({ length: msgUploading }, (_, i) => (
-                        <div key={'u' + i} className="w-16 h-16 shrink-0 rounded-xl border border-dashed border-stone-300 flex items-center justify-center">
-                          <Loader2 className="w-4 h-4 text-stone-400 animate-spin" />
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {showMsgEmoji && (
-                    <div className="mb-2"><EmojiPicker onPick={(e) => setNewMessage(v => insertAtCursor(msgBoxRef.current, v, e))} /></div>
-                  )}
-                  {/* Message box, like iMessage: photo and emoji buttons, a rounded box that grows
-                      with each new line, and a round blue send arrow */}
-                  <form onSubmit={handleSendMessage} className="flex items-end gap-2">
-                    <input
-                      ref={msgFileRef}
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      className="hidden"
-                      onChange={(e) => { addMessagePhotos(Array.from(e.target.files ?? [])); e.target.value = ''; }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => msgFileRef.current?.click()}
-                      className="w-10 h-10 shrink-0 rounded-full bg-stone-200/70 text-stone-600 flex items-center justify-center active:bg-stone-300"
-                      aria-label="Add a photo"
-                    >
-                      <ImagePlus className="w-5 h-5" />
-                    </button>
-                    <div className="flex-1 min-w-0 flex items-end rounded-[22px] border border-stone-300 bg-white pl-4 pr-1 py-1 focus-within:border-blue-400">
-                      <textarea
-                        ref={msgBoxRef}
-                        rows={1}
-                        value={newMessage}
-                        onChange={(e) => setNewMessage(e.target.value)}
-                        onPaste={(e) => {
-                          const pasted = Array.from(e.clipboardData?.files ?? []);
-                          if (pasted.length) { e.preventDefault(); addMessagePhotos(pasted); }
-                        }}
-                        placeholder="Message"
-                        enterKeyHint="send"
-                        className="flex-1 min-w-0 py-[7px] text-base leading-[22px] bg-transparent resize-none focus:outline-none placeholder:text-stone-400"
-                        aria-label="Message"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowMsgEmoji(v => !v)}
-                        className={`w-8 h-8 shrink-0 mb-[3px] rounded-full flex items-center justify-center ${showMsgEmoji ? 'text-blue-500' : 'text-stone-400'}`}
-                        aria-label="Emoji"
-                        aria-pressed={showMsgEmoji}
-                      >
-                        <Smile className="w-5 h-5" />
-                      </button>
-                      <button
-                        type="submit"
-                        disabled={(!newMessage.trim() && !msgPhotos.length) || msgUploading > 0}
-                        className="w-8 h-8 shrink-0 mb-[3px] rounded-full bg-blue-500 text-white flex items-center justify-center disabled:bg-stone-300 transition-colors"
-                        aria-label="Send"
-                      >
-                        <ArrowUp className="w-5 h-5" strokeWidth={2.5} />
-                      </button>
-                    </div>
-                  </form>
-                </>
-              }
-            >
-              {messages.length === 0 ? (
-                <p className="text-center text-[14px] text-stone-500 pt-6">No messages yet. Say something about it!</p>
-              ) : (
-                <div className="space-y-1">
-                  {/* iMessage style: your messages blue on the right, everyone else's white on the left.
-                      In group and Public nudges, each message shows who wrote it, like a group chat. */}
+          {showMessages && (
+            <div className="px-5 pb-5 pt-2 bg-stone-50" onClick={(e) => e.stopPropagation()}>
+              {/* Message Thread */}
+              {messages.length > 0 && (
+                <div className="space-y-2 mb-4">
+                  {/* iMessage style: your messages blue on the right, everyone else's white on the left */}
+                  {/* In group and Public nudges, each message shows who wrote it (name above, picture
+                      beside), like a group chat in Messages. 1-on-1 chats don't need it. */}
                   {messages.map((message, i) => {
                     const mine = message.sender === currentUser;
                     const showWho = !mine && (isGroup || reminder.isPublic);
-                    const prev = messages[i - 1];
-                    const next = messages[i + 1];
-                    // A new day (or a long pause) gets a time label in the middle, like Messages
-                    const showTime = !prev || message.createdAt.getTime() - prev.createdAt.getTime() > 60 * 60 * 1000;
-                    const sameAsBefore = !showTime && prev?.sender === message.sender;
-                    const lastInRun = !next || next.sender !== message.sender || next.createdAt.getTime() - message.createdAt.getTime() > 60 * 60 * 1000;
-                    const pics = message.attachments.filter(a => a.type.startsWith('image/')).map(a => a.url);
+                    // Only label the first of several messages in a row from the same person
+                    const sameAsBefore = i > 0 && messages[i - 1].sender === message.sender;
                     return (
-                      <div key={message.id}>
-                        {showTime && (
-                          <p className="text-center text-[11px] text-stone-400 pt-3 pb-1">
-                            {formatDate(message.createdAt)} {message.createdAt.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
-                          </p>
+                      <div key={message.id} className={`flex flex-col ${mine ? 'items-end' : 'items-start'}`}>
+                        {showWho && !sameAsBefore && (
+                          <ProfileLink name={message.sender} className="ml-9 mb-0.5 text-[12px] text-stone-500">{message.sender}</ProfileLink>
                         )}
-                        <div className={`flex flex-col ${mine ? 'items-end' : 'items-start'} ${sameAsBefore ? '' : 'pt-1.5'}`}>
-                          {showWho && !sameAsBefore && (
-                            <ProfileLink name={message.sender} className="ml-11 mb-0.5 text-[12px] text-stone-500">{message.sender}</ProfileLink>
+                        <div className={`flex items-end gap-1.5 max-w-[85%] ${mine ? 'flex-row-reverse' : ''}`}>
+                          {showWho && (
+                            <span className={`w-[26px] shrink-0 ${sameAsBefore ? 'invisible' : ''}`}>
+                              <Avatar name={message.sender} size={26} profile />
+                            </span>
                           )}
-                          <div className={`flex items-end gap-2 max-w-[80%] ${mine ? 'flex-row-reverse' : ''}`}>
-                            {showWho && (
-                              <span className={`w-[30px] shrink-0 ${lastInRun ? '' : 'invisible'}`}>
-                                <Avatar name={message.sender} size={30} profile />
-                              </span>
-                            )}
-                            <div className={`min-w-0 flex flex-col gap-1 ${mine ? 'items-end' : 'items-start'}`}>
-                              {pics.length > 0 && (
+                          <div className={`min-w-0 flex flex-col gap-1 ${mine ? 'items-end' : 'items-start'}`}>
+                            {message.attachments.filter(a => a.type.startsWith('image/')).length > 0 && (() => {
+                              const pics = message.attachments.filter(a => a.type.startsWith('image/')).map(a => a.url);
+                              return (
                                 <div className={`grid gap-1 ${pics.length > 1 ? 'grid-cols-2' : ''}`}>
                                   {pics.map((src, pi) => (
                                     <button key={src} type="button" onClick={() => setMsgViewer({ photos: pics, index: pi })} aria-label="View photo">
-                                      <img src={src} alt="" className={`rounded-2xl object-cover bg-stone-100 ${pics.length > 1 ? 'w-32 h-32' : 'max-w-[240px] max-h-[300px]'}`} />
+                                      <img src={src} alt="" className={`rounded-2xl object-cover bg-stone-100 ${pics.length > 1 ? 'w-28 h-28' : 'max-w-[220px] max-h-[260px]'}`} />
                                     </button>
                                   ))}
                                 </div>
-                              )}
-                              {message.text && (
-                                <MessageText
-                                  text={message.text}
-                                  className={`min-w-0 max-w-full px-4 py-2 text-[16px] leading-[22px] rounded-[20px] ${
-                                    mine
-                                      ? `bg-blue-500 text-white ${lastInRun ? 'rounded-br-md' : ''}`
-                                      : `bg-white text-stone-900 border border-stone-200 ${lastInRun ? 'rounded-bl-md' : ''}`
-                                  }`}
-                                />
-                              )}
-                            </div>
+                              );
+                            })()}
+                            {message.text && (
+                              <MessageText
+                                text={message.text}
+                                className={`min-w-0 max-w-full px-3.5 py-2 text-[15px] leading-[20px] rounded-[18px] ${
+                                  mine
+                                    ? 'bg-blue-500 text-white rounded-br-md'
+                                    : 'bg-white text-stone-900 border border-stone-200 rounded-bl-md'
+                                }`}
+                              />
+                            )}
                           </div>
                         </div>
+                        <span className={`mt-0.5 px-1 text-[11px] text-stone-400 ${showWho ? 'ml-8' : ''}`}>
+                          {formatTime(message.createdAt)}
+                        </span>
                       </div>
                     );
                   })}
                 </div>
               )}
+
               {msgViewer && <PhotoViewer photos={msgViewer.photos} startIndex={msgViewer.index} onClose={() => setMsgViewer(null)} />}
-            </ChatScreen>,
-            document.body
+              {/* Photos waiting to be sent with the next message */}
+              {(msgPhotos.length > 0 || msgUploading > 0) && (
+                <div className="mb-2 pt-1.5 flex gap-2 overflow-x-auto">
+                  {msgPhotos.map((a, i) => (
+                    <div key={a.url} className="relative shrink-0">
+                      <img src={a.url} alt="" className="w-16 h-16 rounded-xl object-cover" />
+                      <button type="button" onClick={() => setMsgPhotos(prev => prev.filter((_, j) => j !== i))} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-stone-800 text-white flex items-center justify-center" aria-label="Remove photo">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                  {Array.from({ length: msgUploading }, (_, i) => (
+                    <div key={'u' + i} className="w-16 h-16 shrink-0 rounded-xl border border-dashed border-stone-300 flex items-center justify-center">
+                      <Loader2 className="w-4 h-4 text-stone-400 animate-spin" />
+                    </div>
+                  ))}
+                </div>
+              )}
+              {/* Message box, like iMessage: photo and emoji buttons, a rounded box that grows
+                  with each new line, and a round blue send arrow */}
+              {showMsgEmoji && (
+                <div className="mb-2"><EmojiPicker onPick={(e) => setNewMessage(v => insertAtCursor(msgBoxRef.current, v, e))} /></div>
+              )}
+              <form onSubmit={handleSendMessage} className="flex items-end gap-2">
+                <input
+                  ref={msgFileRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => { addMessagePhotos(Array.from(e.target.files ?? [])); e.target.value = ''; }}
+                />
+                <button
+                  type="button"
+                  onClick={() => msgFileRef.current?.click()}
+                  className="w-10 h-10 shrink-0 rounded-full bg-stone-200/70 text-stone-600 flex items-center justify-center active:bg-stone-300"
+                  aria-label="Add a photo"
+                >
+                  <ImagePlus className="w-5 h-5" />
+                </button>
+                <div className="flex-1 min-w-0 flex items-end rounded-[22px] border border-stone-300 bg-white pl-4 pr-1 py-1 focus-within:border-blue-400">
+                  <textarea
+                    ref={msgBoxRef}
+                    rows={1}
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    onPaste={(e) => {
+                      const pasted = Array.from(e.clipboardData?.files ?? []);
+                      if (pasted.length) { e.preventDefault(); addMessagePhotos(pasted); }
+                    }}
+                    placeholder="Message"
+                    enterKeyHint="send"
+                    className="flex-1 min-w-0 py-[7px] text-base leading-[22px] bg-transparent resize-none focus:outline-none placeholder:text-stone-400"
+                    aria-label="Message"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowMsgEmoji(v => !v)}
+                    className={`w-8 h-8 shrink-0 mb-[3px] rounded-full flex items-center justify-center ${showMsgEmoji ? 'text-blue-500' : 'text-stone-400'}`}
+                    aria-label="Emoji"
+                    aria-pressed={showMsgEmoji}
+                  >
+                    <Smile className="w-5 h-5" />
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={(!newMessage.trim() && !msgPhotos.length) || msgUploading > 0}
+                    className="w-8 h-8 shrink-0 mb-[3px] rounded-full bg-blue-500 text-white flex items-center justify-center disabled:bg-stone-300 transition-colors"
+                    aria-label="Send"
+                  >
+                    <ArrowUp className="w-5 h-5" strokeWidth={2.5} />
+                  </button>
+                </div>
+              </form>
+            </div>
           )}
         </div>
       )}

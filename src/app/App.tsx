@@ -2672,14 +2672,6 @@ export default function App() {
                     <span className="text-sm text-stone-400">{v.count}</span>
                   </button>
                 ))}
-                <button
-                  onClick={() => setShowChatHistory(true)}
-                  className="col-span-2 flex items-center gap-2.5 px-3.5 py-3 rounded-2xl bg-white border border-stone-200 text-left active:bg-stone-50"
-                >
-                  <MessageCircle className="w-[18px] h-[18px] text-blue-500" />
-                  <span className="flex-1 text-[15px] text-stone-800">Chat history</span>
-                  <ChevronRight className="w-4 h-4 text-stone-400" />
-                </button>
               </div>
               {/* My Nudges */}
               {myOwnReminders.length > 0 && (
@@ -2872,6 +2864,19 @@ export default function App() {
                   <span className="block text-sm text-stone-500">
                     {friends.length ? `${friends.length} friend${friends.length === 1 ? '' : 's'} · add, remove, or block` : 'Add friends by username'}
                   </span>
+                </span>
+                <ChevronRight className="w-5 h-5 text-stone-400 shrink-0" />
+              </button>
+              <button
+                onClick={() => setShowChatHistory(true)}
+                className="w-full bg-white rounded-xl border border-stone-200 p-4 flex items-center gap-3 text-left active:bg-stone-50"
+              >
+                <span className="w-10 h-10 rounded-xl bg-blue-50 text-blue-500 flex items-center justify-center shrink-0">
+                  <MessageCircle className="w-5 h-5" />
+                </span>
+                <span className="flex-1 min-w-0">
+                  <span className="block text-base">Chat history</span>
+                  <span className="block text-sm text-stone-500">Messages you've written</span>
                 </span>
                 <ChevronRight className="w-5 h-5 text-stone-400 shrink-0" />
               </button>
