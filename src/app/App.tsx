@@ -1987,6 +1987,33 @@ export default function App() {
     return [...reopenedReminders.filter(r => !laterAt[r.id]), ...now, ...reopenedReminders.filter(r => laterAt[r.id]), ...later];
   })();
   const homeQueue = queuePerson ? fullQueue.filter(r => queueKeyOf(r) === queuePerson) : fullQueue;
+
+  // A nudge YOU sent, back on Home because someone wrote on it: seeing that message as
+  // Up next counts as reading it. It stays put while you look, then settles back into
+  // Checked once you move on (another nudge comes up, you leave Home, or close the app).
+  const heroSeenPending = useRef<Set<string>>(new Set());
+  const homeHero = mobileTab === 'inbox' && !selectedSender && !showFriends && !showChatHistory
+    ? homeQueue.find(r => !r.todoItems) ?? null : null;
+  const flushHeroSeen = (keep?: string) => {
+    heroSeenPending.current.forEach(id => {
+      if (id === keep) return;
+      heroSeenPending.current.delete(id);
+      if (hasNewMessages(id)) markSeen(id);
+    });
+  };
+  useEffect(() => {
+    flushHeroSeen(homeHero?.id);
+    if (homeHero && homeHero.sender === currentUser && hasNewMessages(homeHero.id)) heroSeenPending.current.add(homeHero.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [homeHero?.id, homeHero && hasNewMessages(homeHero.id)]);
+  useEffect(() => {
+    const listener = CapacitorApp.addListener('appStateChange', ({ isActive }) => { if (!isActive) flushHeroSeen(); });
+    const onHide = () => { if (document.hidden) flushHeroSeen(); };
+    document.addEventListener('visibilitychange', onHide);
+    return () => { listener.then(l => l.remove()); document.removeEventListener('visibilitychange', onHide); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Gone through everything from that friend? Back to your whole list
   const personQueueEmpty = !!queuePerson && homeQueue.length === 0;
   useEffect(() => {
@@ -2976,8 +3003,13 @@ export default function App() {
                   : 'bg-white border-stone-300 text-stone-700 active:bg-stone-100'
               }`}
             >
-              <CheckCheck className="w-4 h-4 shrink-0" />
-              <span className="text-sm">Checked{chatCheckedCount > 0 ? ` (${chatCheckedCount})` : ''}</span>
+              {/* Looking at the Checked ones? The button takes you back to the Unchecked ones */}
+              {showChecked ? <InboxIcon className="w-4 h-4 shrink-0" /> : <CheckCheck className="w-4 h-4 shrink-0" />}
+              <span className="text-sm">
+                {showChecked
+                  ? `Unchecked${chatReminders.length - chatCheckedCount > 0 ? ` (${chatReminders.length - chatCheckedCount})` : ''}`
+                  : `Checked${chatCheckedCount > 0 ? ` (${chatCheckedCount})` : ''}`}
+              </span>
               {chatHasNewInChecked && !showChecked && (
                 <span className="absolute top-1.5 right-2 w-2.5 h-2.5 rounded-full bg-notify" aria-label="New messages" />
               )}
@@ -3094,7 +3126,7 @@ export default function App() {
         const r = allUserReminders.find(x => x.id === gridOpenId);
         if (!r) return null;
         return (
-          <NudgeSheet onClose={() => { setGridOpenId(null); setGridOpenChat(false); }}>
+          <NudgeSheet onClose={() => { if (hasNewMessages(r.id)) markSeen(r.id); setGridOpenId(null); setGridOpenChat(false); }}>
             {renderHomeList([r], undefined, { openIds: new Set([r.id]), openMessagesId: gridOpenChat ? r.id : undefined })}
           </NudgeSheet>
         );
