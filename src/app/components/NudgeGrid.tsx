@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Check, ListChecks, MessageCircle, X, Play } from 'lucide-react';
+import { Check, ListChecks, MessageCircle, Play } from 'lucide-react';
 import type { Reminder, ReminderType } from '../App';
 import { Avatar } from './Avatar';
 import { PlatformBadge } from './LinkCard';
@@ -155,19 +155,10 @@ export function NudgeSheet({ onClose, children }: { onClose: () => void; childre
         className={`h-full overflow-y-auto overscroll-contain flex flex-col px-4 ${keyboardUp ? 'justify-end' : 'justify-center'}`}
         style={{ paddingTop: keyboardUp ? 12 : 'calc(env(safe-area-inset-top) + 12px)', paddingBottom: keyboardUp ? 12 : 'calc(env(safe-area-inset-bottom) + 12px)' }}
       >
-        {/* Only the card catches taps; anywhere around it closes */}
+        {/* Only the card catches taps; tapping anywhere around it closes it */}
         <div className="relative w-full max-w-lg mx-auto nudge-pop rounded-2xl shadow-2xl" onClick={(e) => e.stopPropagation()}>
           {children}
         </div>
-        {!keyboardUp && (
-          <button
-            onClick={onClose}
-            className="mt-4 mx-auto shrink-0 w-11 h-11 rounded-full bg-white/90 text-stone-700 shadow flex items-center justify-center active:bg-white"
-            aria-label="Close"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        )}
       </div>
     </div>
   );
