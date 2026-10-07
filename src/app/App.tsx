@@ -4,6 +4,7 @@ import { QuickSendModal } from './components/QuickSendModal';
 import { SortMenu, sortReminders, loadSortSetting, saveSortSetting, type SortSetting, ViewToggle, loadListView, saveListView, type ListView } from './components/SortMenu';
 import { NudgeGrid, NudgeSheet } from './components/NudgeGrid';
 import { ChatHistory } from './components/ChatHistory';
+import { MessageReactionsContext, type MessageReaction } from './components/MessageReactions';
 import { FolderBar, type Folder } from './components/FolderBar';
 import { SwipeRow } from './components/SwipeRow';
 import { Avatar, AvatarContext, ProfileContext, ProfileLink } from './components/Avatar';
@@ -292,6 +293,8 @@ interface LoadedData {
   groupPicRows: { group_key: string; avatar: string }[] | null;
   isAdmin: boolean;
   muteRows: { target: string }[] | null;
+  /** Emoji reactions on chat messages */
+  msgReactionRows?: { message_id: string; username: string; emoji: string }[] | null;
 }
 
 // A copy of the last launch's data on this phone, so the app opens instantly
@@ -520,6 +523,7 @@ export default function App() {
   const [editingNote, setEditingNote] = useState(false);
   const [noteDraft, setNoteDraft] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
+  const [msgReactionRows, setMsgReactionRows] = useState<{ message_id: string; username: string; emoji: string }[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
@@ -586,6 +590,7 @@ export default function App() {
     setCurrentUser(null);
     setReminders([]);
     setMessages([]);
+    setMsgReactionRows([]);
     setIsAdmin(false);
     setShowInsights(false);
   };
@@ -601,6 +606,7 @@ export default function App() {
     const voteMap = groupVotes(d.voteRows);
     setReminders(d.reminderRows.map(row => rowToReminder(row, reactionMap[row.id] || [], voteMap[row.id] || [])));
     setMessages(d.messageRows.map(rowToMessage));
+    if (d.msgReactionRows) setMsgReactionRows(d.msgReactionRows);
     setHiddenContacts(d.contactPrefRows.map(c => ({ name: c.contact_name, status: c.status as 'archived' | 'deleted' })));
     if (d.folderRows && d.folderItemRows) {
       setFolders(d.folderRows);
@@ -632,7 +638,7 @@ export default function App() {
       reminders, reactions, messageRes, contactPrefs, votes,
       folderRes, folderItemRes, sessionRes,
       favRes, avatarRes, noteRes, readRes,
-      stateRes, connRes, reqRes, pendRes, groupPicRes, adminRes, muteRes,
+      stateRes, connRes, reqRes, pendRes, groupPicRes, adminRes, muteRes, msgReactRes,
     ] = await Promise.all([
       supabase.from('reminders').select('*').order('created_at', { ascending: false }),
       supabase.from('reminder_reactions').select('*'),
@@ -654,6 +660,7 @@ export default function App() {
       supabase.from('group_avatars').select('group_key, avatar'),
       supabase.rpc('is_admin'),
       supabase.from('mutes').select('target'),
+      supabase.from('message_reactions').select('message_id, username, emoji'),
     ]);
 
     const core = reminders.error || reactions.error || messageRes.error || contactPrefs.error || votes.error;
@@ -684,6 +691,7 @@ export default function App() {
       groupPicRows: optional(groupPicRes, 'Group pictures'),
       isAdmin: adminRes.data === true,
       muteRows: optional(muteRes, 'Mutes'),
+      msgReactionRows: optional(msgReactRes, 'Message reactions'),
     };
     applyLoaded(d);
     setLoadError(null);
@@ -717,6 +725,7 @@ export default function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'reminders' }, scheduleRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'reminder_reactions' }, scheduleRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, scheduleRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'message_reactions' }, scheduleRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, scheduleRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'contact_prefs' }, scheduleRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'reminder_votes' }, scheduleRefresh)
@@ -1349,6 +1358,41 @@ export default function App() {
     }
     setMessages(prev => [...prev, rowToMessage(data)]);
   };
+
+  // ---- Reactions on chat messages (one per person: pick another to change it, same one to remove) ----
+  const messageReactions = useMemo(() => {
+    const byMessage: Record<string, MessageReaction[]> = {};
+    for (const row of msgReactionRows) {
+      if (blockedNames.has(row.username)) continue;
+      const list = (byMessage[row.message_id] ??= []);
+      const existing = list.find(r => r.emoji === row.emoji);
+      if (existing) existing.users.push(row.username); else list.push({ emoji: row.emoji, users: [row.username] });
+    }
+    return byMessage;
+  }, [msgReactionRows, blockedNames]);
+  const handleReactToMessage = async (messageId: string, emoji: string) => {
+    if (!currentUser) return;
+    const mine = msgReactionRows.find(r => r.message_id === messageId && r.username === currentUser);
+    const removing = mine?.emoji === emoji;
+    setMsgReactionRows(prev => [
+      ...prev.filter(r => !(r.message_id === messageId && r.username === currentUser)),
+      ...(removing ? [] : [{ message_id: messageId, username: currentUser, emoji }]),
+    ]);
+    if (!removing) { try { Haptics.impact({ style: ImpactStyle.Light }); } catch { /* no haptics */ } }
+    const { error } = removing
+      ? await supabase.from('message_reactions').delete().match({ message_id: messageId, username: currentUser })
+      : await supabase.from('message_reactions').upsert({ message_id: messageId, username: currentUser, emoji }, { onConflict: 'message_id,username' });
+    if (error) {
+      console.error(error);
+      toast("Couldn't save that reaction");
+      loadData();
+    }
+  };
+  const messageReactionsValue = useMemo(
+    () => ({ reactions: messageReactions, react: handleReactToMessage, currentUser }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [messageReactions, currentUser, msgReactionRows]
+  );
 
   const handleToggleReaction = async (reminderId: string, emoji: string) => {
     if (!currentUser) return;
@@ -2254,6 +2298,7 @@ export default function App() {
   return (
     <AvatarContext.Provider value={avatars}>
     <ProfileContext.Provider value={setProfileName}>
+    <MessageReactionsContext.Provider value={messageReactionsValue}>
     <div
       className="flex flex-col overflow-hidden"
       style={{ height: '100%', width: '100%', background: '#FBF6EC', paddingTop: 'env(safe-area-inset-top)' }}
@@ -3210,6 +3255,7 @@ export default function App() {
         mobileOffset={{ bottom: 'calc(env(safe-area-inset-bottom) + 76px)' }}
       />
     </div>
+    </MessageReactionsContext.Provider>
     </ProfileContext.Provider>
     </AvatarContext.Provider>
   );

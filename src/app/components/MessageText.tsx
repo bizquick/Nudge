@@ -23,7 +23,14 @@ function linkify(text: string) {
   });
 }
 
-export function MessageText({ text, className = '' }: { text: string; className?: string }) {
+export function MessageText({ text, className = '', onHold, onDoubleTap }: {
+  text: string;
+  className?: string;
+  /** After a hold copies the message (chat bubbles open the reaction picker) */
+  onHold?: () => void;
+  onDoubleTap?: () => void;
+}) {
+  const lastTap = useRef(0);
   const box = useRef<HTMLDivElement>(null);
   const timer = useRef<number | null>(null);
   const start = useRef<{ x: number; y: number } | null>(null);
@@ -59,6 +66,7 @@ export function MessageText({ text, className = '' }: { text: string; className?
     setFlash(true);
     window.setTimeout(() => setFlash(false), 450);
     toast('Copied message');
+    onHold?.();
   };
 
   return (
@@ -78,7 +86,13 @@ export function MessageText({ text, className = '' }: { text: string; className?
         const s = start.current;
         if (s && Math.hypot(e.clientX - s.x, e.clientY - s.y) > 8) cancel();
       }}
-      onPointerUp={cancel}
+      onPointerUp={() => {
+        const held = timer.current === null; // the hold already fired
+        cancel();
+        if (held || !onDoubleTap) return;
+        const now = Date.now();
+        if (now - lastTap.current < 320) { lastTap.current = 0; onDoubleTap(); } else lastTap.current = now;
+      }}
       // iOS "cancels" the touch the moment its own text selection kicks in; the hold still counts
       onPointerCancel={() => { handedOff.current = true; }}
     >

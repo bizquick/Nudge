@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Globe, Music, Video, Type as TypeIcon, Sparkles, UtensilsCrossed, Lightbulb, Send, X, Paperclip, Loader2, Link2, Bookmark, ListChecks, Plus, FileText, Users, Smile } from 'lucide-react';
 import type { ReminderType, NewNudge, Attachment } from '../App';
 import { supabase } from '../utils/supabase/client';
+import { searchPeople } from '../utils/people';
 import { guessCategory } from '../utils/guessCategory';
 import { shrinkForUpload } from '../utils/upload';
 import { EmojiPicker, insertAtCursor } from './EmojiPicker';
@@ -92,26 +93,23 @@ export function QuickSendModal({ recipient, knownRecipients, knownGroups = [], c
     setRecipientQuery('');
   };
 
-  // Someone you haven't nudged before: if what you typed is their exact Nudge name,
-  // the server confirms it. (Nobody can browse or search the full list of users.)
-  const [exactMatch, setExactMatch] = useState<string | null>(null);
+  // Someone you haven't nudged before: search Addly by username, or by their exact email
+  const [found, setFound] = useState<string[]>([]);
   const [lookingUp, setLookingUp] = useState(false);
   useEffect(() => {
-    setExactMatch(null);
+    setFound([]);
     const q = recipientQuery.trim();
-    if (q.length < 2 || knownRecipients.some(u => u.toLowerCase() === q.toLowerCase())) return;
+    if (q.length < 2) return;
     setLookingUp(true);
     const timer = setTimeout(async () => {
-      const { data, error } = await supabase.rpc('find_profile', { p_name: q });
+      const people = await searchPeople(q);
       setLookingUp(false);
-      if (error) {
-        console.warn('Name lookup unavailable:', error);
-        return;
-      }
-      if (typeof data === 'string' && data !== currentUser && !selectedRecipients.includes(data)) setExactMatch(data);
-    }, 350);
+      const known = new Set(knownRecipients.map(u => u.toLowerCase()));
+      setFound(people.filter(p => p !== currentUser && !selectedRecipients.includes(p) && !known.has(p.toLowerCase())));
+    }, 300);
     return () => { clearTimeout(timer); setLookingUp(false); };
   }, [recipientQuery]);
+  const byEmail = recipientQuery.includes('@');
 
   // "Save to My Nudges" adds you to the recipient list so the nudge also shows
   // in My Nudges, but you don't count toward making it a group.
@@ -434,7 +432,7 @@ export function QuickSendModal({ recipient, knownRecipients, knownGroups = [], c
                     type="text"
                     value={recipientQuery}
                     onChange={(e) => setRecipientQuery(e.target.value)}
-                    placeholder={selectedRecipients.length > 0 ? 'Add…' : "Friend's name"}
+                    placeholder={selectedRecipients.length > 0 ? 'Add…' : 'Name, username, or email'}
                     autoComplete="off"
                     autoCorrect="off"
                     autoCapitalize="none"
@@ -508,18 +506,21 @@ export function QuickSendModal({ recipient, knownRecipients, knownGroups = [], c
                     {u}
                   </button>
                 ))}
-                {exactMatch && (
+                {found.map(u => (
                   <button
+                    key={'f:' + u}
                     type="button"
-                    onClick={() => addRecipient(exactMatch)}
+                    onClick={() => addRecipient(u)}
                     className="w-full text-left px-3 py-2 text-sm hover:bg-stone-50 border-b border-stone-100 last:border-b-0"
                   >
-                    {exactMatch} <span className="text-xs text-stone-400">· new contact</span>
+                    {u} <span className="text-xs text-stone-400">· {byEmail ? 'matches that email' : 'on Addly'}</span>
                   </button>
-                )}
-                {matches.length === 0 && groupMatches.length === 0 && !exactMatch && (
+                ))}
+                {matches.length === 0 && groupMatches.length === 0 && found.length === 0 && (
                   <p className="px-3 py-2 text-xs text-stone-500">
-                    {lookingUp ? 'Looking…' : "No one by that name. To add someone new, type their exact username, or ask them for their Addly link."}
+                    {lookingUp ? 'Looking…' : byEmail
+                      ? "No one on Addly with that email. Check the spelling, or send them your Addly link."
+                      : "No one by that name. Try their email address, or send them your Addly link."}
                   </p>
                 )}
               </div>

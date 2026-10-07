@@ -1,5 +1,5 @@
 import { Globe, Music, Video, Type as TypeIcon, Sparkles, UtensilsCrossed, Lightbulb, ExternalLink, Check, MessageCircle, Send, Archive, Star, SmilePlus, Pencil, Forward, Heart, Globe2, FolderInput, BellOff, ListChecks, FileText, ImagePlus, Loader2, X, ArrowUp, Smile } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Reminder, Message } from '../App';
 import type { Folder } from './FolderBar';
 import { Avatar, ProfileLink } from './Avatar';
@@ -9,6 +9,7 @@ import { TodoEditor } from './TodoEditor';
 import { LinkCard } from './LinkCard';
 import { EmojiPicker, insertAtCursor } from './EmojiPicker';
 import { MessageText } from './MessageText';
+import { ReactionBadge, ReactionPicker } from './MessageReactions';
 import { guessCategory } from '../utils/guessCategory';
 import { uploadAttachment } from '../utils/upload';
 import type { Attachment } from '../App';
@@ -189,6 +190,9 @@ export function ReminderCard({
   const msgFileRef = useRef<HTMLInputElement>(null);
   const msgBoxRef = useRef<HTMLTextAreaElement>(null);
   const [showMsgEmoji, setShowMsgEmoji] = useState(false);
+  // The message whose reaction picker is open
+  const [reactingTo, setReactingTo] = useState<string | null>(null);
+  const closeReactions = useCallback(() => setReactingTo(null), []);
   // While you're typing a message, the reactions/buttons row underneath steps aside
   const [typing, setTyping] = useState(false);
   const typingTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -760,12 +764,19 @@ export function ReminderCard({
                             {message.text && (
                               <MessageText
                                 text={message.text}
+                                // Double-tap (or hold) a message to react to it
+                                onDoubleTap={() => setReactingTo(message.id)}
+                                onHold={() => setReactingTo(message.id)}
                                 className={`min-w-0 max-w-full px-3.5 py-2 text-[15px] leading-[20px] rounded-[18px] ${
                                   mine
                                     ? 'bg-blue-500 text-white rounded-br-md'
                                     : 'bg-white text-stone-900 border border-stone-200 rounded-bl-md'
                                 }`}
                               />
+                            )}
+                            <ReactionBadge messageId={message.id} alignRight={mine} />
+                            {reactingTo === message.id && (
+                              <ReactionPicker messageId={message.id} alignRight={mine} onClose={closeReactions} />
                             )}
                           </div>
                         </div>

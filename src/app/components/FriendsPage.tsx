@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ChevronLeft, Send, UserPlus, MoreHorizontal, Loader2, Search } from 'lucide-react';
 import { Avatar } from './Avatar';
+import { searchPeople } from '../utils/people';
 
 // Your friends: everyone you've swapped nudges with (plus anyone you've added).
-// Add someone by their exact username, send them a nudge, remove them, or block them.
+// Find someone by username or email and add them; send a nudge, remove, or block.
 
 export interface Friend {
   name: string;
@@ -26,17 +27,30 @@ export function FriendsPage({ friends, onClose, onAdd, onSend, onRemove, onBlock
   const [adding, setAdding] = useState(false);
   const [username, setUsername] = useState('');
   const [addError, setAddError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [results, setResults] = useState<string[]>([]);
+  const [searching, setSearching] = useState(false);
+  // Search as you type (a moment after you stop)
+  useEffect(() => {
+    setResults([]);
+    const q = username.trim();
+    if (q.length < 2) { setSearching(false); return; }
+    setSearching(true);
+    const timer = setTimeout(async () => {
+      setResults(await searchPeople(q));
+      setSearching(false);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [username]);
+  const friendNames = new Set(friends.map(f => f.name));
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [query, setQuery] = useState('');
 
-  const add = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!username.trim()) return;
-    setBusy(true);
+  const add = async (name: string) => {
+    setBusy(name);
     setAddError(null);
-    const problem = await onAdd(username.trim());
-    setBusy(false);
+    const problem = await onAdd(name);
+    setBusy(null);
     if (problem) { setAddError(problem); return; }
     setUsername('');
     setAdding(false);
@@ -69,26 +83,54 @@ export function FriendsPage({ friends, onClose, onAdd, onSend, onRemove, onBlock
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
         <div className="max-w-2xl mx-auto w-full px-4 pb-8">
           {adding && (
-            <form onSubmit={add} className="mb-4 bg-white rounded-2xl border border-stone-200 p-4" onClick={(e) => e.stopPropagation()}>
-              <p className="text-sm text-stone-600">Type their exact Addly username.</p>
-              <div className="mt-2 flex gap-2">
+            <div className="mb-4 bg-white rounded-2xl border border-stone-200 p-4" onClick={(e) => e.stopPropagation()}>
+              <p className="text-sm text-stone-600">Search by username or email address.</p>
+              <div className="mt-2 flex items-center gap-2 px-3 rounded-xl border border-stone-300 focus-within:ring-2 focus-within:ring-brand-500">
+                <Search className="w-4 h-4 text-stone-400 shrink-0" />
                 <input
                   autoFocus
                   value={username}
                   onChange={(e) => { setUsername(e.target.value); setAddError(null); }}
-                  placeholder="Username"
+                  placeholder="Username or email"
+                  type="search"
+                  inputMode="email"
                   autoCapitalize="none"
                   autoCorrect="off"
                   spellCheck={false}
-                  className="flex-1 min-w-0 px-3.5 py-2.5 rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  className="flex-1 min-w-0 py-2.5 bg-transparent focus:outline-none"
                 />
-                <button type="submit" disabled={busy || !username.trim()} className="px-4 rounded-xl bg-brand-600 text-white disabled:opacity-50">
-                  {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Add'}
-                </button>
+                {searching && <Loader2 className="w-4 h-4 text-stone-400 animate-spin shrink-0" />}
               </div>
+              {results.length > 0 && (
+                <div className="mt-2 divide-y divide-stone-100">
+                  {results.map(name => (
+                    <div key={name} className="flex items-center gap-3 py-2">
+                      <Avatar name={name} size={36} />
+                      <span className="flex-1 min-w-0 truncate">{name}</span>
+                      {friendNames.has(name) ? (
+                        <span className="text-sm text-stone-400">Friends</span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => add(name)}
+                          disabled={busy === name}
+                          className="px-3.5 h-8 rounded-full bg-brand-600 text-white text-sm disabled:opacity-50 flex items-center"
+                        >
+                          {busy === name ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Add'}
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {!searching && username.trim().length >= 2 && results.length === 0 && (
+                <p className="mt-2 text-sm text-stone-500">
+                  {username.includes('@') ? 'No one on Addly with that email.' : 'No one by that name. Try their email address.'}
+                </p>
+              )}
               {addError && <p className="mt-2 text-sm text-red-600">{addError}</p>}
-              <p className="mt-2 text-xs text-stone-500">Friends can send you nudges without a request.</p>
-            </form>
+              <p className="mt-2 text-xs text-stone-500">Friends can send you nudges without a request. Emails are never shown to anyone.</p>
+            </div>
           )}
 
           {friends.length > 8 && (
