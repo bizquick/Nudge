@@ -16,7 +16,7 @@ const KEY_STORAGE = 'addly.shareKey';
 let lastSent = '';
 
 /** Keep the Share menu up to date. Cheap to call often: it only writes when something changed. */
-export async function syncShareMenu(me: string, contacts: string[]) {
+export async function syncShareMenu(me: string, contacts: string[], groups: { name: string; members: string[] }[] = []) {
   if (!Capacitor.isNativePlatform()) return;
   try {
     let saved: { owner: string; key: string } | null = null;
@@ -31,6 +31,8 @@ export async function syncShareMenu(me: string, contacts: string[]) {
       shareKey: saved.key,
       displayName: me,
       contacts: JSON.stringify(contacts.slice(0, 60)),
+      // Your group chats, so a whole group can be picked at once
+      groups: JSON.stringify(groups.slice(0, 25).map(g => ({ name: g.name, members: g.members.filter(m => m !== me) }))),
       supabaseUrl: `https://${projectId}.supabase.co`,
       anonKey: publicAnonKey,
     };

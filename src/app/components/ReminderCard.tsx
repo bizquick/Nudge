@@ -193,9 +193,9 @@ export function ReminderCard({
   // The message whose reaction picker is open
   const [reactingTo, setReactingTo] = useState<string | null>(null);
   const closeReactions = useCallback(() => setReactingTo(null), []);
-  // While you're typing a message, the reactions/buttons row underneath steps aside
-  const [typing, setTyping] = useState(false);
-  const typingTimer = useRef<ReturnType<typeof setTimeout>>();
+  // Long conversations show the latest few, with "See earlier messages" above
+  const [showAllMessages, setShowAllMessages] = useState(false);
+  const actionButton = 'h-9 min-w-9 px-2 rounded-full flex items-center justify-center gap-1 text-stone-500 active:bg-black/5 transition-colors';
   const addMessagePhotos = (files: File[]) => {
     files.filter(f => f.type.startsWith('image/')).slice(0, 6).forEach(async f => {
       setMsgUploading(n => n + 1);
@@ -354,7 +354,7 @@ export function ReminderCard({
         className={`cursor-pointer transition-all ${isSelected ? 'p-4 sm:p-5' : 'p-3 sm:p-4'}`}
         onClick={() => onSelect(reminder.id)}
       >
-        {stampLine}
+        {!isSelected && stampLine}
         {/* Sent to someone who hasn't accepted you yet: they can't see it until they do */}
         {waitingOn.length > 0 && (
           <div className="mb-2 -mt-0.5 flex items-center gap-2 rounded-lg bg-request-50 border border-request-300 px-2.5 py-1.5" onClick={(e) => e.stopPropagation()}>
@@ -466,66 +466,54 @@ export function ReminderCard({
             )}
           </div>
         ) : (
-          /* Expanded view — checkmark, type icon, and avatar as a normal row (nothing absolutely positioned, so nothing can overlap) */
+          /* Expanded view: who it's from and when, with the Check button on the right */
           <>
-            <div className={`flex items-center gap-3 mb-3 ${flipped ? 'flex-row-reverse' : ''}`}>
-              {/* To-do lists use the Complete buttons below instead */}
-              {canCheck && !hideCheck && !todos && <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onToggleCheckedOut(reminder.id);
-                }}
-                className={`h-10 px-3.5 rounded-xl shrink-0 flex items-center gap-1.5 text-sm transition-colors ${
-                  reminder.checkedOut
-                    ? 'bg-green-600 text-white'
-                    : 'bg-white border-2 border-stone-300 text-stone-600 active:bg-stone-50'
-                }`}
-                title={reminder.checkedOut ? 'Tap to un-check' : 'Mark as checked'}
-                aria-pressed={reminder.checkedOut}
-              >
-                <Check className="w-4 h-4" /> Checked
-              </button>}
-
-              {Icon && effectiveType && (
-                <div className={`p-2 sm:p-3 rounded-lg shrink-0 ${colors[effectiveType]}`}>
-                  <Icon className="w-5 h-5" />
-                </div>
-              )}
-
-              {reminder.isPublic && (
-                <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-teal-100 text-teal-700 text-[11px] shrink-0" title="Anyone can see this in Popular">
-                  <Globe2 className="w-3 h-3" />
-                  Public
-                </span>
-              )}
-
+            <div className="flex items-center gap-3 mb-3">
               {isGroup ? (
-                <div className={`${flipped ? 'mr-auto' : 'ml-auto'} min-w-0 flex items-center gap-1.5`} title={otherParticipants.join(', ')}>
-                  {reminder.groupName && (
-                    <span className="min-w-0 px-2 py-1 rounded-full bg-stone-100 text-stone-600 text-xs max-w-[100px] truncate">
-                      {reminder.groupName}
-                    </span>
+                <div className={`relative shrink-0 h-10 ${otherParticipants.length > 2 ? 'w-12' : 'w-10'}`} title={otherParticipants.join(', ')}>
+                  {otherParticipants.slice(0, 2).map((p, i) => (
+                    <div key={p} className="absolute rounded-full border-2 border-white" style={{ left: i * 12, top: i === 1 ? 10 : 0, zIndex: 2 - i }}>
+                      <Avatar name={p} size={26} profile />
+                    </div>
+                  ))}
+                  {otherParticipants.length > 2 && (
+                    <div className="absolute w-7 h-7 rounded-full bg-stone-300 flex items-center justify-center text-white text-[10px] border-2 border-white" style={{ left: 22, top: 10, zIndex: 0 }}>
+                      +{otherParticipants.length - 2}
+                    </div>
                   )}
-                  <div className={`relative shrink-0 h-9 sm:h-10 ${otherParticipants.length > 2 ? 'w-12' : 'w-9 sm:w-10'}`}>
-                    {otherParticipants.slice(0, 2).map((p, i) => (
-                      <div key={p} className="absolute rounded-full border-2 border-white" style={{ left: i * 10, top: i === 1 ? 8 : 0, zIndex: 2 - i }}>
-                        <Avatar name={p} size={24} profile />
-                      </div>
-                    ))}
-                    {otherParticipants.length > 2 && (
-                      <div className="absolute w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-stone-300 flex items-center justify-center text-white text-[9px] border-2 border-white" style={{ left: 20, top: 8, zIndex: 0 }}>
-                        +{otherParticipants.length - 1}
-                      </div>
-                    )}
-                  </div>
                 </div>
               ) : (
-                <div className={flipped ? 'mr-auto' : 'ml-auto'}>
-                  <Avatar name={viewType === 'received' ? reminder.sender : reminder.recipients[0]} size={38} profile />
-                </div>
+                <Avatar name={fromMe ? currentUser : sentByMe ? reminder.recipients[0] : reminder.sender} size={40} profile />
+              )}
+              <div className="flex-1 min-w-0">
+                <p className="text-[15px] font-medium text-stone-900 truncate">
+                  {isGroup
+                    ? (reminder.groupName || otherParticipants.join(', '))
+                    : fromMe ? 'My Nudges' : sentByMe ? `To ${reminder.recipients.filter(p => p !== currentUser).join(', ')}` : reminder.sender}
+                </p>
+                <p className="text-[12px] text-stone-500 truncate">
+                  {[
+                    isGroup ? (reminder.sender === currentUser ? 'You sent' : `${reminder.sender} sent`) : null,
+                    stampTime(reminder.createdAt),
+                    effectiveType ? CATEGORY_LABELS[effectiveType] : null,
+                    reminder.isPublic ? 'Public' : null,
+                  ].filter(Boolean).join(' · ')}
+                </p>
+              </div>
+              {/* To-do lists use the Complete buttons below instead */}
+              {canCheck && !hideCheck && !todos && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onToggleCheckedOut(reminder.id); }}
+                  className={`h-9 pl-3 pr-3.5 rounded-full shrink-0 flex items-center gap-1.5 text-[14px] font-medium transition-colors ${
+                    reminder.checkedOut ? 'bg-green-600 text-white' : 'bg-brand-600 text-white active:bg-brand-700'
+                  }`}
+                  title={reminder.checkedOut ? 'Tap to un-check' : 'Mark as checked'}
+                  aria-pressed={reminder.checkedOut}
+                >
+                  <Check className="w-4 h-4" strokeWidth={2.5} /> {reminder.checkedOut ? 'Checked' : 'Check'}
+                </button>
               )}
             </div>
-
             {/* The link, as a card you can tap — styled like the app it's from (YouTube, Spotify…) */}
             {reminder.url && (
               <div className="-mx-1">
@@ -696,353 +684,237 @@ export function ReminderCard({
       </div>
       </>)}
 
-      {/* Messages Section - Only show when expanded */}
+      {/* One quiet row of actions: reactions, favorite, priority, forward, folder · archive */}
       {isSelected && (
-        <div className="border-t border-stone-200">
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowMessages(!showMessages);
-            }}
-            className="w-full px-5 py-3 flex items-center justify-between hover:bg-stone-50 transition-colors"
-          >
-            <div className="flex items-center gap-2 text-sm">
-              <MessageCircle className="w-4 h-4" />
-              <span>
-                {messages.length === 0 
-                  ? 'Add a message' 
-                  : `${messages.length} message${messages.length === 1 ? '' : 's'}`}
-              </span>
-            </div>
-            <svg
-              className={`w-4 h-4 transition-transform ${showMessages ? 'rotate-180' : ''}`}
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
+        <div className="px-3 pb-2 flex items-center gap-0.5 flex-wrap" onClick={(e) => e.stopPropagation()}>
+          {reminder.reactions.map((reaction) => (
+            <button
+              key={reaction.emoji}
+              onClick={() => handleReactionClick(reaction.emoji)}
+              className={`h-8 px-2 mr-0.5 rounded-full border text-[15px] leading-none flex items-center gap-1 ${
+                reaction.users.includes(currentUser) ? 'bg-brand-50 border-brand-300' : 'bg-white border-stone-200'
+              }`}
+              title={reaction.users.join(', ')}
             >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
+              {reaction.emoji}
+              {reaction.users.length > 1 && <span className="text-[11px] text-stone-500">{reaction.users.length}</span>}
+            </button>
+          ))}
+          <div className="relative">
+            <button onClick={() => setShowReactionPicker(!showReactionPicker)} className={actionButton} title="React" aria-label="React">
+              <SmilePlus className="w-[19px] h-[19px]" />
+            </button>
+            {showReactionPicker && (
+              <div className="absolute bottom-full left-0 mb-1.5 bg-white rounded-full shadow-lg border border-stone-200 px-1.5 py-1 flex gap-0.5 z-10">
+                {availableEmojis.map((emoji) => (
+                  <button key={emoji} onClick={() => handleReactionClick(emoji)} className="w-9 h-9 flex items-center justify-center rounded-full text-[20px] active:scale-125 transition-transform">
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          {(isParticipant || anyoneCanCheck) && (
+            <button onClick={() => onToggleFavorite(reminder.id)} className={actionButton} title={reminder.favorited ? 'Unfavorite' : 'Favorite'} aria-pressed={reminder.favorited}>
+              <Star className={`w-[19px] h-[19px] ${reminder.favorited ? 'fill-amber-400 text-amber-500' : ''}`} />
+            </button>
+          )}
+          {isParticipant && onTogglePriority && (
+            <button
+              onClick={() => onTogglePriority(reminder.id)}
+              className={`${actionButton} text-[17px] ${reminder.prioritizedAt ? 'bg-gold-100' : 'grayscale opacity-60'}`}
+              title={reminder.prioritizedAt ? 'Remove priority' : 'Prioritize'}
+              aria-pressed={!!reminder.prioritizedAt}
+            >
+              🤯
+            </button>
+          )}
+          <button onClick={() => onForward(reminder)} className={actionButton} title="Forward" aria-label="Forward">
+            <Forward className="w-[19px] h-[19px]" />
           </button>
-
-          {showMessages && (
-            <div className={`px-5 pb-5 pt-2 bg-stone-50 ${typing ? (rich ? 'rounded-b-[14px]' : 'rounded-b-[10px]') : ''}`} onClick={(e) => e.stopPropagation()}>
-              {/* Message Thread */}
-              {messages.length > 0 && (
-                <div className="space-y-2 mb-4">
-                  {/* iMessage style: your messages blue on the right, everyone else's white on the left */}
-                  {/* In group and Public nudges, each message shows who wrote it (name above, picture
-                      beside), like a group chat in Messages. 1-on-1 chats don't need it. */}
-                  {messages.map((message, i) => {
-                    const mine = message.sender === currentUser;
-                    const showWho = !mine && (isGroup || reminder.isPublic);
-                    // Only label the first of several messages in a row from the same person
-                    const sameAsBefore = i > 0 && messages[i - 1].sender === message.sender;
-                    return (
-                      <div key={message.id} className={`flex flex-col ${mine ? 'items-end' : 'items-start'}`}>
-                        {showWho && !sameAsBefore && (
-                          <ProfileLink name={message.sender} className="ml-9 mb-0.5 text-[12px] text-stone-500">{message.sender}</ProfileLink>
-                        )}
-                        <div className={`flex items-end gap-1.5 max-w-[85%] ${mine ? 'flex-row-reverse' : ''}`}>
-                          {showWho && (
-                            <span className={`w-[26px] shrink-0 ${sameAsBefore ? 'invisible' : ''}`}>
-                              <Avatar name={message.sender} size={26} profile />
-                            </span>
-                          )}
-                          <div className={`min-w-0 flex flex-col gap-1 ${mine ? 'items-end' : 'items-start'}`}>
-                            {message.attachments.filter(a => a.type.startsWith('image/')).length > 0 && (() => {
-                              const pics = message.attachments.filter(a => a.type.startsWith('image/')).map(a => a.url);
-                              return (
-                                <div className={`grid gap-1 ${pics.length > 1 ? 'grid-cols-2' : ''}`}>
-                                  {pics.map((src, pi) => (
-                                    <button key={src} type="button" onClick={() => setMsgViewer({ photos: pics, index: pi })} aria-label="View photo">
-                                      <img src={src} alt="" className={`rounded-2xl object-cover bg-stone-100 ${pics.length > 1 ? 'w-28 h-28' : 'max-w-[220px] max-h-[260px]'}`} />
-                                    </button>
-                                  ))}
-                                </div>
-                              );
-                            })()}
-                            {message.text && (
-                              <MessageText
-                                text={message.text}
-                                // Double-tap (or hold) a message to react to it
-                                onDoubleTap={() => setReactingTo(message.id)}
-                                onHold={() => setReactingTo(message.id)}
-                                className={`min-w-0 max-w-full px-3.5 py-2 text-[15px] leading-[20px] rounded-[18px] ${
-                                  mine
-                                    ? 'bg-blue-500 text-white rounded-br-md'
-                                    : 'bg-white text-stone-900 border border-stone-200 rounded-bl-md'
-                                }`}
-                              />
-                            )}
-                            <ReactionBadge messageId={message.id} alignRight={mine} />
-                            {reactingTo === message.id && (
-                              <ReactionPicker messageId={message.id} alignRight={mine} onClose={closeReactions} />
-                            )}
-                          </div>
-                        </div>
-                        <span className={`mt-0.5 px-1 text-[11px] text-stone-400 ${showWho ? 'ml-8' : ''}`}>
-                          {formatTime(message.createdAt)}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {msgViewer && <PhotoViewer photos={msgViewer.photos} startIndex={msgViewer.index} onClose={() => setMsgViewer(null)} />}
-              {/* Photos waiting to be sent with the next message */}
-              {(msgPhotos.length > 0 || msgUploading > 0) && (
-                <div className="mb-2 pt-1.5 flex gap-2 overflow-x-auto">
-                  {msgPhotos.map((a, i) => (
-                    <div key={a.url} className="relative shrink-0">
-                      <img src={a.url} alt="" className="w-16 h-16 rounded-xl object-cover" />
-                      <button type="button" onClick={() => setMsgPhotos(prev => prev.filter((_, j) => j !== i))} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-stone-800 text-white flex items-center justify-center" aria-label="Remove photo">
-                        <X className="w-3 h-3" />
-                      </button>
-                    </div>
-                  ))}
-                  {Array.from({ length: msgUploading }, (_, i) => (
-                    <div key={'u' + i} className="w-16 h-16 shrink-0 rounded-xl border border-dashed border-stone-300 flex items-center justify-center">
-                      <Loader2 className="w-4 h-4 text-stone-400 animate-spin" />
-                    </div>
-                  ))}
-                </div>
-              )}
-              {/* Message box, like iMessage: photo and emoji buttons, a rounded box that grows
-                  with each new line, and a round blue send arrow */}
-              {showMsgEmoji && (
-                <div className="mb-2"><EmojiPicker onPick={(e) => setNewMessage(v => insertAtCursor(msgBoxRef.current, v, e))} /></div>
-              )}
-              <form onSubmit={handleSendMessage} className="flex items-end gap-2">
-                <input
-                  ref={msgFileRef}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  className="hidden"
-                  onChange={(e) => { addMessagePhotos(Array.from(e.target.files ?? [])); e.target.value = ''; }}
-                />
-                <button
-                  type="button"
-                  onClick={() => msgFileRef.current?.click()}
-                  className="w-10 h-10 shrink-0 rounded-full bg-stone-200/70 text-stone-600 flex items-center justify-center active:bg-stone-300"
-                  aria-label="Add a photo"
-                >
-                  <ImagePlus className="w-5 h-5" />
+          {folderOptions && reminder.favorited && (() => {
+            const currentFolder = folderOptions.folderOf(reminder.id);
+            const currentName = folderOptions.folders.find(f => f.id === currentFolder)?.name;
+            return (
+              <div className="relative">
+                <button onClick={() => setShowFolderMenu(!showFolderMenu)} className={`${actionButton} ${currentFolder ? 'text-brand-700' : ''}`} title="Move to folder">
+                  <FolderInput className="w-[19px] h-[19px]" />
+                  {currentName && <span className="text-[12px] max-w-[90px] truncate">{currentName}</span>}
                 </button>
-                <div className="flex-1 min-w-0 flex items-end rounded-[22px] border border-stone-300 bg-white pl-4 pr-1 py-1 focus-within:border-blue-400">
-                  <textarea
-                    ref={msgBoxRef}
-                    rows={1}
-                    value={newMessage}
-                    onChange={(e) => setNewMessage(e.target.value)}
-                    onPaste={(e) => {
-                      const pasted = Array.from(e.clipboardData?.files ?? []);
-                      if (pasted.length) { e.preventDefault(); addMessagePhotos(pasted); }
-                    }}
-                    placeholder="Message"
-                    onFocus={() => { clearTimeout(typingTimer.current); setTyping(true); }}
-                    onBlur={() => { typingTimer.current = setTimeout(() => setTyping(false), 150); }}
-                    enterKeyHint="send"
-                    className="flex-1 min-w-0 py-[7px] text-base leading-[22px] bg-transparent resize-none focus:outline-none placeholder:text-stone-400"
-                    aria-label="Message"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowMsgEmoji(v => !v)}
-                    className={`w-8 h-8 shrink-0 mb-[3px] rounded-full flex items-center justify-center ${showMsgEmoji ? 'text-blue-500' : 'text-stone-400'}`}
-                    aria-label="Emoji"
-                    aria-pressed={showMsgEmoji}
-                  >
-                    <Smile className="w-5 h-5" />
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={(!newMessage.trim() && !msgPhotos.length) || msgUploading > 0}
-                    className="w-8 h-8 shrink-0 mb-[3px] rounded-full bg-blue-500 text-white flex items-center justify-center disabled:bg-stone-300 transition-colors"
-                    aria-label="Send"
-                  >
-                    <ArrowUp className="w-5 h-5" strokeWidth={2.5} />
-                  </button>
-                </div>
-              </form>
-            </div>
+                {showFolderMenu && (
+                  <div className="absolute bottom-full left-0 mb-1.5 w-48 bg-white rounded-xl shadow-lg border border-stone-200 py-1 z-20">
+                    {folderOptions.folders.length === 0 ? (
+                      <p className="px-3 py-2 text-xs text-stone-500">Make a folder with "New folder" at the top of Favorites first.</p>
+                    ) : (
+                      [{ id: null as string | null, name: 'No folder' }, ...folderOptions.folders].map(f => (
+                        <button
+                          key={f.id ?? 'none'}
+                          onClick={() => { folderOptions.onMove(reminder.id, f.id); setShowFolderMenu(false); }}
+                          className="w-full flex items-center justify-between px-3 py-2 text-sm text-stone-700 active:bg-stone-50"
+                        >
+                          <span className="truncate">{f.name}</span>
+                          {currentFolder === f.id && <Check className="w-4 h-4 text-brand-600 shrink-0" />}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+          {/* Like button — only where likes count (the Popular tab) */}
+          {likeButton('md')}
+          <span className="flex-1" />
+          {isParticipant && (
+            <button onClick={() => onArchive(reminder.id)} className={actionButton} title={reminder.archived ? 'Unarchive' : 'Archive'} aria-label={reminder.archived ? 'Unarchive' : 'Archive'}>
+              <Archive className="w-[19px] h-[19px]" />
+            </button>
           )}
         </div>
       )}
 
-      {/* Reactions Section - Only show when expanded (and not while typing a message) */}
-      {isSelected && !typing && (
-        <div className={`border-t border-stone-200 px-5 py-3 bg-stone-50 ${rich ? 'rounded-b-[14px]' : 'rounded-b-[10px]'}`}>
-          <div className="flex items-center justify-between gap-2 flex-wrap">
-            <div className="flex items-center gap-2 flex-wrap">
-              {/* Existing Reactions */}
-              {reminder.reactions.map((reaction) => (
-                <button
-                  key={reaction.emoji}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleReactionClick(reaction.emoji);
-                  }}
-                  className={`px-2 py-1 rounded-full border transition-all hover:scale-110 ${
-                    reaction.users.includes(currentUser)
-                      ? 'bg-brand-100 border-brand-300'
-                      : 'bg-white border-stone-300 hover:bg-stone-100'
-                  }`}
-                  title={reaction.users.join(', ')}
-                >
-                  <span className="text-base">{reaction.emoji}</span>
-                  {reaction.users.length > 1 && (
-                    <span className="text-xs ml-1 text-stone-600">{reaction.users.length}</span>
-                  )}
-                </button>
-              ))}
-
-              {/* Add Reaction Button */}
-              <div className="relative">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowReactionPicker(!showReactionPicker);
-                  }}
-                  className="px-2 py-1 rounded-full border border-stone-300 bg-white hover:bg-stone-100 transition-colors"
-                  title="Add reaction"
-                >
-                  <SmilePlus className="w-4 h-4 text-stone-600" />
-                </button>
-
-                {/* Reaction Picker Popup */}
-                {showReactionPicker && (
-                  <div 
-                    className="absolute bottom-full left-0 mb-2 bg-white rounded-lg shadow-lg border border-stone-200 p-2 flex gap-1 z-10"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {availableEmojis.map((emoji) => (
-                      <button
-                        key={emoji}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleReactionClick(emoji);
-                        }}
-                        className="w-8 h-8 flex items-center justify-center hover:bg-stone-100 rounded transition-colors"
-                      >
-                        <span className="text-lg">{emoji}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Favorite Button */}
-              {(isParticipant || anyoneCanCheck) && <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onToggleFavorite(reminder.id);
-                }}
-                className={`px-2 py-1 rounded-full border transition-all hover:scale-110 ${
-                  reminder.favorited
-                    ? 'bg-amber-100 border-amber-300'
-                    : 'bg-white border-stone-300 hover:bg-stone-100'
-                }`}
-                title={reminder.favorited ? 'Unfavorite' : 'Favorite'}
-              >
-                <Star className={`w-4 h-4 ${reminder.favorited ? 'fill-amber-500 text-amber-500' : 'text-stone-600'}`} />
-              </button>}
-
-              {/* Priority — sender or receiver can bump it to the top of everyone's list */}
-              {isParticipant && onTogglePriority && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onTogglePriority(reminder.id);
-                  }}
-                  className={`px-2 py-1 rounded-full border transition-all hover:scale-110 text-sm leading-4 ${
-                    reminder.prioritizedAt ? 'bg-gold-100 border-gold-300' : 'bg-white border-stone-300 hover:bg-stone-100 grayscale opacity-70'
-                  }`}
-                  title={reminder.prioritizedAt ? 'Remove priority' : 'Prioritize'}
-                  aria-pressed={!!reminder.prioritizedAt}
-                >
-                  <span aria-hidden="true">🤯</span>
-                  <span className="sr-only">{reminder.prioritizedAt ? 'Remove priority' : 'Prioritize'}</span>
-                </button>
-              )}
-
-              {/* Forward Button */}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onForward(reminder);
-                }}
-                className="px-2 py-1 rounded-full border border-stone-300 bg-white text-stone-600 hover:bg-stone-100 transition-all hover:scale-110"
-                title="Forward this nudge"
-              >
-                <Forward className="w-4 h-4" />
-              </button>
-
-              {/* Move to folder — favorites only */}
-              {folderOptions && reminder.favorited && (() => {
-                const currentFolder = folderOptions.folderOf(reminder.id);
-                const currentName = folderOptions.folders.find(f => f.id === currentFolder)?.name;
+      {/* The conversation: always right here when the nudge is open, with one tidy message box */}
+      {isSelected && (
+        <div className="border-t border-black/[0.06] px-4 pt-3 pb-4" onClick={(e) => e.stopPropagation()}>
+          {messages.length > 4 && !showAllMessages && (
+            <button onClick={() => setShowAllMessages(true)} className="mb-2 w-full text-center text-[12px] text-blue-600">
+              See {messages.length - 4} earlier message{messages.length - 4 === 1 ? '' : 's'}
+            </button>
+          )}
+          {messages.length > 0 && (
+            <div className="space-y-1 mb-3">
+              {/* iMessage style: yours blue on the right, everyone else's grey on the left. In
+                  group and Public nudges, each message shows who wrote it. */}
+              {(showAllMessages ? messages : messages.slice(-4)).map((message, i, shown) => {
+                const mine = message.sender === currentUser;
+                const showWho = !mine && (isGroup || reminder.isPublic);
+                const prev = shown[i - 1];
+                const next = shown[i + 1];
+                const sameAsBefore = prev?.sender === message.sender;
+                // The time goes under the last of a run of messages
+                const showTime = !next || next.sender !== message.sender || next.createdAt.getTime() - message.createdAt.getTime() > 15 * 60 * 1000;
+                const pics = message.attachments.filter(a => a.type.startsWith('image/')).map(a => a.url);
                 return (
-                  <div className="relative">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setShowFolderMenu(!showFolderMenu);
-                      }}
-                      className={`px-2 py-1 rounded-full border transition-all flex items-center gap-1 text-xs ${
-                        currentFolder ? 'bg-brand-50 border-brand-300 text-brand-700' : 'bg-white border-stone-300 text-stone-600 hover:bg-stone-100'
-                      }`}
-                      title="Move to folder"
-                    >
-                      <FolderInput className="w-4 h-4" />
-                      {currentName && <span className="max-w-[90px] truncate">{currentName}</span>}
-                    </button>
-
-                    {showFolderMenu && (
-                      <div
-                        className="absolute bottom-full left-0 mb-2 w-48 bg-white rounded-lg shadow-lg border border-stone-200 py-1 z-20"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {folderOptions.folders.length === 0 ? (
-                          <p className="px-3 py-2 text-xs text-stone-500">Make a folder with "New folder" at the top of Favorites first.</p>
-                        ) : (
-                          [{ id: null as string | null, name: 'No folder' }, ...folderOptions.folders].map(f => (
-                            <button
-                              key={f.id ?? 'none'}
-                              onClick={() => {
-                                folderOptions.onMove(reminder.id, f.id);
-                                setShowFolderMenu(false);
-                              }}
-                              className="w-full flex items-center justify-between px-3 py-2 text-sm text-stone-700 hover:bg-stone-50"
-                            >
-                              <span className="truncate">{f.name}</span>
-                              {currentFolder === f.id && <Check className="w-4 h-4 text-brand-600 shrink-0" />}
-                            </button>
-                          ))
+                  <div key={message.id} className={`flex flex-col ${mine ? 'items-end' : 'items-start'} ${sameAsBefore ? '' : 'pt-1'}`}>
+                    {showWho && !sameAsBefore && (
+                      <ProfileLink name={message.sender} className="ml-9 mb-0.5 text-[11px] text-stone-500">{message.sender}</ProfileLink>
+                    )}
+                    <div className={`flex items-end gap-1.5 max-w-[85%] ${mine ? 'flex-row-reverse' : ''}`}>
+                      {showWho && (
+                        <span className={`w-[26px] shrink-0 ${showTime ? '' : 'invisible'}`}>
+                          <Avatar name={message.sender} size={26} profile />
+                        </span>
+                      )}
+                      <div className={`min-w-0 flex flex-col gap-1 ${mine ? 'items-end' : 'items-start'}`}>
+                        {pics.length > 0 && (
+                          <div className={`grid gap-1 ${pics.length > 1 ? 'grid-cols-2' : ''}`}>
+                            {pics.map((src, pi) => (
+                              <button key={src} type="button" onClick={() => setMsgViewer({ photos: pics, index: pi })} aria-label="View photo">
+                                <img src={src} alt="" className={`rounded-2xl object-cover bg-stone-100 ${pics.length > 1 ? 'w-28 h-28' : 'max-w-[220px] max-h-[260px]'}`} />
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        {message.text && (
+                          <MessageText
+                            text={message.text}
+                            // Double-tap (or hold) a message to react to it
+                            onDoubleTap={() => setReactingTo(message.id)}
+                            onHold={() => setReactingTo(message.id)}
+                            className={`min-w-0 max-w-full px-3.5 py-[7px] text-[15px] leading-[20px] rounded-[18px] ${
+                              mine ? 'bg-blue-500 text-white' : 'bg-black/[0.06] text-stone-900'
+                            } ${showTime ? (mine ? 'rounded-br-md' : 'rounded-bl-md') : ''}`}
+                          />
+                        )}
+                        <ReactionBadge messageId={message.id} alignRight={mine} />
+                        {reactingTo === message.id && (
+                          <ReactionPicker messageId={message.id} alignRight={mine} onClose={closeReactions} />
                         )}
                       </div>
+                    </div>
+                    {showTime && (
+                      <span className={`mt-0.5 px-1 text-[10px] text-stone-400 ${showWho ? 'ml-8' : ''}`}>
+                        {formatTime(message.createdAt)}
+                      </span>
                     )}
                   </div>
                 );
-              })()}
-
-              {/* Like button — only present where likes count (the Popular tab) */}
-              {likeButton('md')}
+              })}
             </div>
+          )}
 
-            {/* Archive Button - bottom right, across from Favorite */}
-            {isParticipant && <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onArchive(reminder.id);
-              }}
-              className="px-2 py-1 rounded-full border border-stone-300 bg-white text-stone-600 hover:bg-stone-100 transition-all hover:scale-110 shrink-0"
-              title={reminder.archived ? 'Unarchive' : 'Archive'}
+          {msgViewer && <PhotoViewer photos={msgViewer.photos} startIndex={msgViewer.index} onClose={() => setMsgViewer(null)} />}
+          {/* Photos waiting to be sent with the next message */}
+          {(msgPhotos.length > 0 || msgUploading > 0) && (
+            <div className="mb-2 pt-1.5 flex gap-2 overflow-x-auto">
+              {msgPhotos.map((a, i) => (
+                <div key={a.url} className="relative shrink-0">
+                  <img src={a.url} alt="" className="w-16 h-16 rounded-xl object-cover" />
+                  <button type="button" onClick={() => setMsgPhotos(prev => prev.filter((_, j) => j !== i))} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-stone-800 text-white flex items-center justify-center" aria-label="Remove photo">
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+              {Array.from({ length: msgUploading }, (_, i) => (
+                <div key={'u' + i} className="w-16 h-16 shrink-0 rounded-xl border border-dashed border-stone-300 flex items-center justify-center">
+                  <Loader2 className="w-4 h-4 text-stone-400 animate-spin" />
+                </div>
+              ))}
+            </div>
+          )}
+          {showMsgEmoji && (
+            <div className="mb-2"><EmojiPicker onPick={(e) => setNewMessage(v => insertAtCursor(msgBoxRef.current, v, e))} /></div>
+          )}
+          {/* One rounded box: photo button, the growing text box, emoji, and the send arrow */}
+          <form onSubmit={handleSendMessage} className="flex items-end rounded-[22px] border border-stone-300 bg-white pl-1 pr-1 py-1 focus-within:border-blue-400">
+            <input
+              ref={msgFileRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => { addMessagePhotos(Array.from(e.target.files ?? [])); e.target.value = ''; }}
+            />
+            <button
+              type="button"
+              onClick={() => msgFileRef.current?.click()}
+              className="w-8 h-8 shrink-0 mb-[3px] rounded-full text-stone-400 flex items-center justify-center active:bg-stone-100"
+              aria-label="Add a photo"
             >
-              <Archive className="w-4 h-4" />
-            </button>}
-          </div>
+              <ImagePlus className="w-5 h-5" />
+            </button>
+            <textarea
+              ref={msgBoxRef}
+              rows={1}
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+              onPaste={(e) => {
+                const pasted = Array.from(e.clipboardData?.files ?? []);
+                if (pasted.length) { e.preventDefault(); addMessagePhotos(pasted); }
+              }}
+              placeholder={isGroup ? 'Message the group' : fromMe ? 'Add a note' : `Message ${otherParticipants[0] ?? ''}`}
+              enterKeyHint="send"
+              className="flex-1 min-w-0 px-1.5 py-[7px] text-base leading-[22px] bg-transparent resize-none focus:outline-none placeholder:text-stone-400"
+              aria-label="Message"
+            />
+            <button
+              type="button"
+              onClick={() => setShowMsgEmoji(v => !v)}
+              className={`w-8 h-8 shrink-0 mb-[3px] rounded-full flex items-center justify-center ${showMsgEmoji ? 'text-blue-500' : 'text-stone-400'}`}
+              aria-label="Emoji"
+              aria-pressed={showMsgEmoji}
+            >
+              <Smile className="w-5 h-5" />
+            </button>
+            <button
+              type="submit"
+              disabled={(!newMessage.trim() && !msgPhotos.length) || msgUploading > 0}
+              className="w-8 h-8 shrink-0 mb-[3px] rounded-full bg-blue-500 text-white flex items-center justify-center disabled:bg-stone-200 transition-colors"
+              aria-label="Send"
+            >
+              <ArrowUp className="w-5 h-5" strokeWidth={2.5} />
+            </button>
+          </form>
         </div>
       )}
     </div>

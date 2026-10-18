@@ -11,6 +11,11 @@ private let groupId = "group.com.brandonchirco.nudge"
 private let brand = Color(red: 0x1F / 255, green: 0x5C / 255, blue: 0x3F / 255)
 private let cream = Color(red: 0xFB / 255, green: 0xF6 / 255, blue: 0xEC / 255)
 
+struct ShareGroup: Decodable, Hashable {
+    let name: String
+    let members: [String]
+}
+
 struct SharedItem {
     var url: URL?
     var title: String?
@@ -24,6 +29,8 @@ final class ShareModel: ObservableObject {
     @Published var item = SharedItem()
     @Published var loading = true
     @Published var selected: [String] = []
+    /// Groups picked (by name): each gets ONE group nudge
+    @Published var selectedGroups: [String] = []
     @Published var saveToSelf = false
     @Published var note = ""
     @Published var search = ""
@@ -41,15 +48,26 @@ final class ShareModel: ObservableObject {
               let list = try? JSONDecoder().decode([String].self, from: data) else { return [] }
         return list
     }
+    /// Your group chats (kept up to date by the app)
+    var groups: [ShareGroup] {
+        guard let json = defaults?.string(forKey: "groups"),
+              let data = json.data(using: .utf8),
+              let list = try? JSONDecoder().decode([ShareGroup].self, from: data) else { return [] }
+        return list.filter { !$0.members.isEmpty }
+    }
     var signedIn: Bool { key != nil && defaults?.string(forKey: "supabaseUrl") != nil }
 
     var canSend: Bool {
-        !sending && !sent && (!selected.isEmpty || saveToSelf)
+        !sending && !sent && (!selected.isEmpty || !selectedGroups.isEmpty || saveToSelf)
             && (item.url != nil || item.imageJPEG != nil || !(item.text ?? "").isEmpty || !note.isEmpty)
     }
 
     func toggle(_ name: String) {
         if let i = selected.firstIndex(of: name) { selected.remove(at: i) } else { selected.append(name) }
+    }
+
+    func toggleGroup(_ name: String) {
+        if let i = selectedGroups.firstIndex(of: name) { selectedGroups.remove(at: i) } else { selectedGroups.append(name) }
     }
 
     // MARK: Reading what was shared
@@ -146,19 +164,37 @@ final class ShareModel: ObservableObject {
         defer { sending = false }
 
         let words = [item.text, note.isEmpty ? nil : note].compactMap { $0 }.joined(separator: "\n")
-        var body: [String: Any] = [
-            "key": key,
-            "recipients": selected,
-            "saveToSelf": saveToSelf,
-            "text": words,
-        ]
-        if let url = item.url { body["url"] = url.absoluteString }
-        if let title = item.title { body["title"] = title }
-        if let jpeg = item.imageJPEG {
-            body["imageBase64"] = jpeg.base64EncodedString()
-            body["imageType"] = "image/jpeg"
-        }
 
+        // People you pick each get their own nudge; a group you pick gets one group nudge
+        var sends: [(recipients: [String], saveToSelf: Bool)] = selected.map { ([$0], false) }
+        for name in selectedGroups {
+            if let group = groups.first(where: { $0.name == name }) { sends.append((group.members, false)) }
+        }
+        if saveToSelf { sends.append(([], true)) }
+
+        for send in sends {
+            var body: [String: Any] = [
+                "key": key,
+                "recipients": send.recipients,
+                "saveToSelf": send.saveToSelf,
+                "text": words,
+            ]
+            if let url = item.url { body["url"] = url.absoluteString }
+            if let title = item.title { body["title"] = title }
+            if let jpeg = item.imageJPEG {
+                body["imageBase64"] = jpeg.base64EncodedString()
+                body["imageType"] = "image/jpeg"
+            }
+            if let problem = await post(body, to: endpoint, anon: anon) {
+                error = problem
+                return
+            }
+        }
+        sent = true
+    }
+
+    /// Sends one nudge. Returns what went wrong, or nil if it worked.
+    private func post(_ body: [String: Any], to endpoint: URL, anon: String) async -> String? {
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.timeoutInterval = 30
@@ -166,18 +202,13 @@ final class ShareModel: ObservableObject {
         request.setValue("Bearer \(anon)", forHTTPHeaderField: "Authorization")
         request.setValue(anon, forHTTPHeaderField: "apikey")
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            if status == 200 {
-                sent = true
-            } else {
-                let message = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String
-                error = message ?? "Couldn't send. Try again."
-            }
+            if (response as? HTTPURLResponse)?.statusCode == 200 { return nil }
+            let message = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String
+            return message ?? "Couldn't send. Try again."
         } catch {
-            self.error = "No connection. Try again."
+            return "No connection. Try again."
         }
     }
 }
@@ -246,14 +277,30 @@ struct ShareView: View {
                     Text(error).font(.footnote).foregroundColor(.red)
                 }
 
-                Text("Send to").font(.footnote.weight(.semibold)).foregroundColor(.secondary).padding(.top, 4)
-
-                if model.contacts.count > 8 {
+                if model.contacts.count + model.groups.count > 8 {
                     TextField("Search", text: $model.search)
                         .padding(10)
                         .background(Color.white)
                         .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
+
+                if !filteredGroups.isEmpty {
+                    Text("Groups").font(.footnote.weight(.semibold)).foregroundColor(.secondary).padding(.top, 4)
+                    VStack(spacing: 0) {
+                        ForEach(Array(filteredGroups.enumerated()), id: \.element) { index, group in
+                            if index > 0 { Divider().padding(.leading, 60) }
+                            personRow(name: group.name, subtitle: group.members.joined(separator: ", "),
+                                      isOn: model.selectedGroups.contains(group.name), initials: "", groupIcon: true) {
+                                model.toggleGroup(group.name)
+                            }
+                        }
+                    }
+                    .background(Color.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    Text("Sends one nudge to the whole group chat.").font(.caption).foregroundColor(.secondary)
+                }
+
+                Text("People").font(.footnote.weight(.semibold)).foregroundColor(.secondary).padding(.top, 4)
 
                 VStack(spacing: 0) {
                     personRow(name: "My Nudges", subtitle: "Save it for yourself", isOn: model.saveToSelf, initials: "★") {
@@ -269,12 +316,24 @@ struct ShareView: View {
                 .background(Color.white)
                 .clipShape(RoundedRectangle(cornerRadius: 14))
 
+                if model.selected.count > 1 {
+                    Text("Each person gets it on their own. To send it as one group nudge, pick a group above.")
+                        .font(.caption).foregroundColor(.secondary)
+                }
+
                 if model.contacts.isEmpty {
                     Text("Send someone a nudge in the Addly app first, and they'll show up here.")
                         .font(.footnote).foregroundColor(.secondary)
                 }
             }
             .padding(16)
+        }
+    }
+
+    private var filteredGroups: [ShareGroup] {
+        let q = model.search.trimmingCharacters(in: .whitespaces).lowercased()
+        return q.isEmpty ? model.groups : model.groups.filter {
+            $0.name.lowercased().contains(q) || $0.members.contains { $0.lowercased().contains(q) }
         }
     }
 
@@ -317,17 +376,22 @@ struct ShareView: View {
         .clipShape(RoundedRectangle(cornerRadius: 14))
     }
 
-    private func personRow(name: String, subtitle: String?, isOn: Bool, initials: String, action: @escaping () -> Void) -> some View {
+    private func personRow(name: String, subtitle: String?, isOn: Bool, initials: String, groupIcon: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 12) {
-                Text(initials)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.white)
-                    .frame(width: 36, height: 36)
-                    .background(Circle().fill(brand.opacity(0.85)))
+                Group {
+                    if groupIcon {
+                        Image(systemName: "person.3.fill").font(.system(size: 13))
+                    } else {
+                        Text(initials).font(.system(size: 14, weight: .semibold))
+                    }
+                }
+                .foregroundColor(.white)
+                .frame(width: 36, height: 36)
+                .background(Circle().fill(brand.opacity(0.85)))
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(name).foregroundColor(.primary)
-                    if let subtitle { Text(subtitle).font(.caption).foregroundColor(.secondary) }
+                    Text(name).foregroundColor(.primary).lineLimit(1)
+                    if let subtitle { Text(subtitle).font(.caption).foregroundColor(.secondary).lineLimit(1) }
                 }
                 Spacer()
                 Image(systemName: isOn ? "checkmark.circle.fill" : "circle")

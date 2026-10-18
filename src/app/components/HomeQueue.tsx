@@ -6,7 +6,8 @@ import { Avatar, ProfileLink } from './Avatar';
 import { CATEGORY_LABELS } from './SortMenu';
 import { PhotoViewer } from './PhotoViewer';
 import { guessCategory } from '../utils/guessCategory';
-import { LinkHero } from './LinkCard';
+import { LinkHero, hasLinkHero } from './LinkCard';
+import { embedFor, viewInApp } from '../utils/embed';
 
 // The category to show: the sender's pick, or the app's best guess from the content
 export const categoryOf = (r: Reminder): ReminderType | null =>
@@ -97,6 +98,21 @@ export function HomeQueue(props: HomeQueueProps) {
       {requestsBanner}
       {/* Who has something waiting (tap a friend to see only theirs) */}
       {props.peopleRow && <div className="mb-4">{props.peopleRow}</div>}
+      {/* A clear label, so there's no doubt which one is next */}
+      {upNext && !explore && (
+        <div className="mb-2 flex items-center gap-2 px-1">
+          <span className="inline-flex items-center gap-1.5 text-[13px] font-bold uppercase tracking-wider text-brand-700">
+            <span className="relative flex w-2 h-2">
+              <span className="absolute inline-flex h-full w-full rounded-full bg-brand-500 opacity-60 animate-ping" />
+              <span className="relative inline-flex w-2 h-2 rounded-full bg-brand-600" />
+            </span>
+            Up next
+          </span>
+          <span className="text-[13px] text-stone-500 truncate">
+            from {upNext.groupName || (upNext.sender === props.currentUser ? 'you' : upNext.sender)}
+          </span>
+        </div>
+      )}
       {upNext && (
         <UpNextCard
           key={upNext.id}
@@ -174,7 +190,9 @@ function UpNextCard({ reminder: r, currentUser, onDone, onLater, messageCount, o
 
   return (
     <div
-      className={`rounded-3xl border border-stone-200 bg-white overflow-hidden shadow-sm duration-200 animate-in fade-in slide-in-from-bottom-3 ${
+      className={`rounded-3xl bg-white overflow-hidden duration-200 animate-in fade-in slide-in-from-bottom-3 ${
+        explore ? 'border border-stone-200 shadow-sm' : 'ring-2 ring-brand-600/80 shadow-[0_10px_30px_-10px_rgba(31,92,63,0.45)]'
+      } ${
         drag.current?.swiping ? '' : 'transition-all'
       } ${leaving === 'done' ? 'translate-x-[110%] opacity-0' : leaving === 'later' ? '-translate-x-[110%] opacity-0' : ''}`}
       style={{ touchAction: 'pan-y', ...(!leaving && dragX ? { transform: `translateX(${dragX}px) rotate(${dragX / 40}deg)`, opacity: Math.max(0.4, 1 + dragX / 500) } : {}) }}
@@ -206,7 +224,7 @@ function UpNextCard({ reminder: r, currentUser, onDone, onLater, messageCount, o
     >
       {/* The picture (or a big tile). Tapping it opens what was sent — the link itself,
           shown like the app it's from (YouTube thumbnail, Spotify album art…). */}
-      {!photos.length && r.url && LinkHero({ url: r.url, image: r.previewImage, title: r.title }) ? (
+      {!photos.length && r.url && hasLinkHero(r.url, r.previewImage) ? (
         <LinkHero url={r.url} image={r.previewImage} title={r.title} />
       ) : picture ? (
         photos.length ? (
@@ -214,18 +232,18 @@ function UpNextCard({ reminder: r, currentUser, onDone, onLater, messageCount, o
             <img src={picture} alt="" className="w-full h-44 object-cover bg-stone-100" />
           </button>
         ) : r.url ? (
-          <a href={r.url} target="_blank" rel="noopener noreferrer" className="block" aria-label="Open link">
+          <button type="button" onClick={() => viewInApp(r.url!)} className="block w-full" aria-label="View link">
             <img src={picture} alt="" className="w-full h-44 object-cover bg-stone-100" />
-          </a>
+          </button>
         ) : (
           <img src={picture} alt="" className="w-full h-44 object-cover bg-stone-100" />
         )
       ) : r.url ? (
-        <a href={r.url} target="_blank" rel="noopener noreferrer" aria-label="Open link"
-          className={`h-28 flex flex-col items-center justify-center gap-1.5 ${type ? CATEGORY_TILE[type] : 'bg-stone-100 text-stone-500'}`}>
+        <button type="button" onClick={() => viewInApp(r.url!)} aria-label="View link"
+          className={`w-full h-28 flex flex-col items-center justify-center gap-1.5 ${type ? CATEGORY_TILE[type] : 'bg-stone-100 text-stone-500'}`}>
           <Icon className="w-8 h-8" />
-          <span className="text-[12px] opacity-80">Tap to open</span>
-        </a>
+          <span className="text-[12px] opacity-80">Tap to view</span>
+        </button>
       ) : (
         <div className={`h-28 flex items-center justify-center ${type ? CATEGORY_TILE[type] : 'bg-stone-100 text-stone-500'}`}>
           <Icon className="w-8 h-8" />
@@ -261,10 +279,11 @@ function UpNextCard({ reminder: r, currentUser, onDone, onLater, messageCount, o
           </span>
           {r.prioritizedAt && <span title="Priority">🤯</span>}
         </div>
-        {r.url ? (
-          <a href={r.url} target="_blank" rel="noopener noreferrer" className="mt-2 block text-[17px] leading-snug font-medium text-stone-900 [overflow-wrap:anywhere]">
+        {r.url && !embedFor(r.url) ? (
+          // Websites: tap the title to read it right here in Addly
+          <button type="button" onClick={() => viewInApp(r.url!)} className="mt-2 block text-left text-[17px] leading-snug font-medium text-stone-900 [overflow-wrap:anywhere]">
             {r.title} <ExternalLink className="inline w-4 h-4 text-brand-600 align-[-2px]" />
-          </a>
+          </button>
         ) : (
           <p className="mt-2 text-[17px] leading-snug font-medium text-stone-900 [overflow-wrap:anywhere]">{r.title}</p>
         )}

@@ -1928,9 +1928,14 @@ export default function App() {
     });
     return seen;
   })();
-  const shareContactsKey = shareContacts.join('|');
+  // Groups for the Share menu, most recently used first
+  const shareGroups = composeGroups
+    .map(g => ({ name: g.label, members: g.members, last: Math.max(0, ...allUserReminders.filter(r => groupKeyFor(r) === g.key).map(r => r.createdAt.getTime())) }))
+    .sort((a, b) => b.last - a.last)
+    .map(({ name, members }) => ({ name, members }));
+  const shareContactsKey = shareContacts.join('|') + '#' + JSON.stringify(shareGroups);
   useEffect(() => {
-    if (currentUser && !dataLoading) syncShareMenu(currentUser, shareContacts);
+    if (currentUser && !dataLoading) syncShareMenu(currentUser, shareContacts, shareGroups);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser, dataLoading, shareContactsKey]);
 
