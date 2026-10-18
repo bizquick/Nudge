@@ -27,7 +27,7 @@ export function useMessageReactions() {
 }
 
 /** The row of emojis that pops up under a message */
-export function ReactionPicker({ messageId, onClose, alignRight }: { messageId: string; onClose: () => void; alignRight: boolean }) {
+export function ReactionPicker({ messageId, onClose, alignRight, onReport }: { messageId: string; onClose: () => void; alignRight: boolean; onReport?: () => void }) {
   const { reactions, react, currentUser } = useMessageReactions();
   const mine = reactions[messageId]?.find(r => r.users.includes(currentUser))?.emoji;
   const ref = useRef<HTMLDivElement>(null);
@@ -53,13 +53,24 @@ export function ReactionPicker({ messageId, onClose, alignRight }: { messageId: 
           key={emoji}
           type="button"
           onClick={() => { react(messageId, emoji); onClose(); }}
-          className={`w-9 h-9 rounded-full text-[22px] leading-none flex items-center justify-center active:scale-125 transition-transform ${mine === emoji ? 'bg-blue-100' : ''}`}
+          className={`${onReport ? 'w-8 h-8 text-[20px]' : 'w-9 h-9 text-[22px]'} rounded-full leading-none flex items-center justify-center active:scale-125 transition-transform ${mine === emoji ? 'bg-blue-100' : ''}`}
           aria-label={`React ${emoji}`}
           aria-pressed={mine === emoji}
         >
           {emoji}
         </button>
       ))}
+      {/* Someone else's message: report it from here too */}
+      {onReport && (
+        <button
+          type="button"
+          onClick={() => { onClose(); onReport(); }}
+          className="ml-0.5 pl-2 pr-2.5 h-9 rounded-full text-[13px] text-red-600 border-l border-stone-200 flex items-center"
+          aria-label="Report this message"
+        >
+          Report
+        </button>
+      )}
     </div>
   );
 }

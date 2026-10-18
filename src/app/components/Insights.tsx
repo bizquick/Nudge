@@ -28,6 +28,18 @@ interface Stats {
 
 type Series = 'active' | 'nudges' | 'messages' | 'signups';
 
+interface ReportRow {
+  id: string;
+  reporter_name: string | null;
+  kind: 'nudge' | 'message' | 'user';
+  target_id: string | null;
+  target_user: string | null;
+  reason: string;
+  details: string | null;
+  snapshot: string | null;
+  created_at: string;
+}
+
 interface UserRow {
   display_name: string;
   email: string | null;
@@ -79,6 +91,26 @@ export function Insights({ onClose }: { onClose: () => void }) {
   const [users, setUsers] = useState<UserRow[] | null>(null);
   const [userQuery, setUserQuery] = useState('');
   const [showAllUsers, setShowAllUsers] = useState(false);
+  // Reports people sent in (Apple expects them handled within a day)
+  const [reports, setReports] = useState<ReportRow[] | null>(null);
+  const [busyReport, setBusyReport] = useState<string | null>(null);
+  const resolve = async (r: ReportRow, remove: boolean) => {
+    if (remove && !confirm(`Delete this ${r.kind} for everyone?`)) return;
+    setBusyReport(r.id);
+    const { error: err } = await supabase.rpc('admin_resolve_report', { p_report: r.id, p_remove: remove });
+    setBusyReport(null);
+    if (err) { alert("Couldn't update that report."); console.error(err); return; }
+    setReports(prev => (prev ?? []).filter(x => x.id !== r.id));
+  };
+  // Removes the person entirely: their account and everything they posted
+  const removeUser = async (r: ReportRow) => {
+    if (!r.target_user || !confirm(`Remove ${r.target_user}? This deletes their account and everything they've posted, for everyone. It can't be undone.`)) return;
+    setBusyReport(r.id);
+    const { error: err } = await supabase.rpc('admin_remove_user', { p_name: r.target_user });
+    setBusyReport(null);
+    if (err) { alert(err.message || "Couldn't remove that user."); console.error(err); return; }
+    setReports(prev => (prev ?? []).filter(x => x.target_user !== r.target_user));
+  };
 
   const load = async () => {
     setLoading(true);
@@ -93,6 +125,11 @@ export function Insights({ onClose }: { onClose: () => void }) {
     const { data: userRows, error: userErr } = await supabase.rpc('admin_users');
     if (userErr) console.warn('User list unavailable', userErr);
     else setUsers(((userRows || []) as UserRow[]).map(u => ({ ...u, sent: Number(u.sent), received: Number(u.received) })));
+    const { data: reportRows, error: reportErr } = await supabase.from('reports')
+      .select('id, reporter_name, kind, target_id, target_user, reason, details, snapshot, created_at')
+      .eq('status', 'open').order('created_at', { ascending: false });
+    if (reportErr) console.warn('Reports unavailable', reportErr);
+    else setReports((reportRows || []) as ReportRow[]);
     setLoading(false);
   };
   useEffect(() => { load(); }, []);
@@ -125,6 +162,44 @@ export function Insights({ onClose }: { onClose: () => void }) {
           </p>
 
           {error && <p className="mt-4 p-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700">{error}</p>}
+
+          {/* Reports to review: remove what breaks the rules, or dismiss */}
+          {reports && (
+            <Section title={`Reports${reports.length ? ` (${reports.length})` : ''}`}>
+              {reports.length === 0 ? (
+                <p className="text-sm text-stone-500">Nothing to review. Reports people send show up here.</p>
+              ) : (
+                <div className="space-y-2">
+                  {reports.map(r => (
+                    <div key={r.id} className="bg-white rounded-xl border border-red-200 p-3.5">
+                      <p className="text-[13px] text-stone-900">
+                        <span className="font-medium">{r.reason}</span>
+                        <span className="text-stone-500"> · {r.kind === 'user' ? 'person' : r.kind} by {r.target_user ?? 'someone'}</span>
+                      </p>
+                      <p className="text-[11px] text-stone-400">Reported by {r.reporter_name ?? 'a deleted account'} · {shortDate(r.created_at)}</p>
+                      {r.snapshot && <p className="mt-2 p-2.5 rounded-lg bg-stone-50 text-[13px] text-stone-700 whitespace-pre-wrap [overflow-wrap:anywhere]">{r.snapshot}</p>}
+                      {r.details && <p className="mt-1.5 text-[12px] text-stone-600">“{r.details}”</p>}
+                      <div className="mt-2.5 flex gap-2">
+                        {r.kind !== 'user' && r.target_id && (
+                          <button onClick={() => resolve(r, true)} disabled={busyReport === r.id} className="flex-1 h-9 rounded-lg bg-red-600 text-white text-sm disabled:opacity-50">
+                            Remove it
+                          </button>
+                        )}
+                        <button onClick={() => resolve(r, false)} disabled={busyReport === r.id} className="flex-1 h-9 rounded-lg border border-stone-300 text-stone-700 text-sm disabled:opacity-50">
+                          Dismiss
+                        </button>
+                        {r.target_user && (
+                          <button onClick={() => removeUser(r)} disabled={busyReport === r.id} className="h-9 px-3 rounded-lg text-red-600 text-sm disabled:opacity-50">
+                            Remove user
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Section>
+          )}
           {!stats && loading && <p className="mt-10 text-center text-sm text-stone-400">Adding things up…</p>}
 
           {stats && (

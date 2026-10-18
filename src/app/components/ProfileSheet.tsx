@@ -10,9 +10,10 @@ interface ProfileSheetProps {
   blocked?: boolean;
   onBlock?: () => void;
   onUnblock?: () => void;
+  onReport?: () => void;
 }
 
-export function ProfileSheet({ name, isYou, onSendNudge, onClose, blocked, onBlock, onUnblock }: ProfileSheetProps) {
+export function ProfileSheet({ name, isYou, onSendNudge, onClose, blocked, onBlock, onUnblock, onReport }: ProfileSheetProps) {
   return (
     <div
       className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center"
@@ -54,6 +55,11 @@ export function ProfileSheet({ name, isYou, onSendNudge, onClose, blocked, onBlo
             className={`mt-3 w-full h-11 rounded-xl text-sm ${blocked ? 'border border-stone-300 text-stone-700' : 'text-red-600'}`}
           >
             {blocked ? `Unblock ${name}` : `Block ${name}`}
+          </button>
+        )}
+        {!isYou && onReport && (
+          <button onClick={() => { onClose(); onReport(); }} className="w-full h-10 rounded-xl text-sm text-stone-500">
+            Report {name}
           </button>
         )}
       </div>

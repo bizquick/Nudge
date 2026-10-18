@@ -3,6 +3,7 @@ import { Send, Eye, EyeOff } from 'lucide-react';
 import { ImageWithFallback } from './figma/ImageWithFallback';
 import nudgeLogo from '../../imports/image-3.png';
 import { supabase } from '../utils/supabase/client';
+import { viewInApp } from '../utils/embed';
 
 // A password box with an eye button to show or hide what you've typed
 // Supabase sometimes reports an email-sending problem as "{}" — say something human instead
@@ -402,6 +403,16 @@ export function AuthScreen({ onSignedIn }: AuthScreenProps) {
           <Send className="w-4 h-4" />
           {loading ? 'Please wait…' : submitLabel}
         </button>
+        {/* Signing up means agreeing to the rules (the App Store requires this) */}
+        {mode === 'signup' && (
+          <p className="text-[12px] leading-4 text-stone-500 text-center">
+            By creating an account, you agree to Addly's{' '}
+            <button type="button" onClick={() => viewInApp('https://addlyapp.com/terms')} className="underline text-stone-700">Terms of Use</button>
+            {' '}and{' '}
+            <button type="button" onClick={() => viewInApp('https://addlyapp.com/privacy')} className="underline text-stone-700">Privacy Policy</button>.
+            There's no tolerance for abusive or objectionable content.
+          </p>
+        )}
       </form>
 
       <div className="mt-3 flex flex-col items-center gap-2 text-sm">

@@ -1,4 +1,4 @@
-import { Globe, Music, Video, Type as TypeIcon, Sparkles, UtensilsCrossed, Lightbulb, ExternalLink, Check, MessageCircle, Send, Archive, Star, SmilePlus, Pencil, Forward, Heart, Globe2, FolderInput, BellOff, ListChecks, FileText, ImagePlus, Loader2, X, ArrowUp, Smile } from 'lucide-react';
+import { Globe, Music, Video, Type as TypeIcon, Sparkles, UtensilsCrossed, Lightbulb, ExternalLink, Check, MessageCircle, Send, Archive, Star, SmilePlus, Pencil, Forward, Heart, Globe2, FolderInput, BellOff, ListChecks, FileText, ImagePlus, Loader2, X, ArrowUp, Smile, Flag } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Reminder, Message } from '../App';
 import type { Folder } from './FolderBar';
@@ -10,6 +10,7 @@ import { LinkCard } from './LinkCard';
 import { EmojiPicker, insertAtCursor } from './EmojiPicker';
 import { MessageText } from './MessageText';
 import { ReactionBadge, ReactionPicker } from './MessageReactions';
+import { useReport } from './ReportSheet';
 import { guessCategory } from '../utils/guessCategory';
 import { uploadAttachment } from '../utils/upload';
 import type { Attachment } from '../App';
@@ -195,6 +196,7 @@ export function ReminderCard({
   const closeReactions = useCallback(() => setReactingTo(null), []);
   // Long conversations show the latest few, with "See earlier messages" above
   const [showAllMessages, setShowAllMessages] = useState(false);
+  const report = useReport();
   const actionButton = 'h-9 min-w-9 px-2 rounded-full flex items-center justify-center gap-1 text-stone-500 active:bg-black/5 transition-colors';
   const addMessagePhotos = (files: File[]) => {
     files.filter(f => f.type.startsWith('image/')).slice(0, 6).forEach(async f => {
@@ -765,6 +767,16 @@ export function ReminderCard({
           {/* Like button — only where likes count (the Popular tab) */}
           {likeButton('md')}
           <span className="flex-1" />
+          {reminder.sender !== currentUser && (
+            <button
+              onClick={() => report({ kind: 'nudge', targetId: reminder.id, targetUser: reminder.sender, snapshot: [reminder.title, reminder.content, reminder.url].filter(Boolean).join('\n') })}
+              className={actionButton}
+              title="Report"
+              aria-label="Report this nudge"
+            >
+              <Flag className="w-[18px] h-[18px]" />
+            </button>
+          )}
           {isParticipant && (
             <button onClick={() => onArchive(reminder.id)} className={actionButton} title={reminder.archived ? 'Unarchive' : 'Archive'} aria-label={reminder.archived ? 'Unarchive' : 'Archive'}>
               <Archive className="w-[19px] h-[19px]" />
@@ -828,7 +840,12 @@ export function ReminderCard({
                         )}
                         <ReactionBadge messageId={message.id} alignRight={mine} />
                         {reactingTo === message.id && (
-                          <ReactionPicker messageId={message.id} alignRight={mine} onClose={closeReactions} />
+                          <ReactionPicker
+                            messageId={message.id}
+                            alignRight={mine}
+                            onClose={closeReactions}
+                            onReport={mine ? undefined : () => report({ kind: 'message', targetId: message.id, targetUser: message.sender, snapshot: message.text })}
+                          />
                         )}
                       </div>
                     </div>

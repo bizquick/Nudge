@@ -5,6 +5,9 @@ import { SortMenu, sortReminders, loadSortSetting, saveSortSetting, type SortSet
 import { NudgeGrid, NudgeSheet } from './components/NudgeGrid';
 import { ChatHistory } from './components/ChatHistory';
 import { MessageReactionsContext, type MessageReaction } from './components/MessageReactions';
+import { ReportContext, ReportSheet, type ReportTarget } from './components/ReportSheet';
+import { DeleteAccount } from './components/DeleteAccount';
+import { viewInApp } from './utils/embed';
 import { FolderBar, type Folder } from './components/FolderBar';
 import { SwipeRow } from './components/SwipeRow';
 import { Avatar, AvatarContext, ProfileContext, ProfileLink } from './components/Avatar';
@@ -295,6 +298,8 @@ interface LoadedData {
   muteRows: { target: string }[] | null;
   /** Emoji reactions on chat messages */
   msgReactionRows?: { message_id: string; username: string; emoji: string }[] | null;
+  /** Things you've reported (hidden from you) */
+  reportRows?: { kind: string; target_id: string | null }[] | null;
 }
 
 // A copy of the last launch's data on this phone, so the app opens instantly
@@ -524,6 +529,12 @@ export default function App() {
   const [noteDraft, setNoteDraft] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [msgReactionRows, setMsgReactionRows] = useState<{ message_id: string; username: string; emoji: string }[]>([]);
+  // Reporting (what you reported is hidden from you right away) and deleting your account
+  const [reportedIds, setReportedIds] = useState<Set<string>>(new Set());
+  const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
+  const [showDeleteAccount, setShowDeleteAccount] = useState(false);
+  // Admin only: how many reports are waiting to be reviewed
+  const [openReports, setOpenReports] = useState(0);
   const [dataLoading, setDataLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
@@ -591,8 +602,31 @@ export default function App() {
     setReminders([]);
     setMessages([]);
     setMsgReactionRows([]);
+    setReportedIds(new Set());
     setIsAdmin(false);
     setShowInsights(false);
+  };
+
+  useEffect(() => {
+    if (!isAdmin || mobileTab !== 'you' || showInsights) return;
+    supabase.from('reports').select('id', { count: 'exact', head: true }).eq('status', 'open')
+      .then(({ count }) => setOpenReports(count ?? 0));
+  }, [isAdmin, mobileTab, showInsights]);
+
+  // Account deleted: everything on the server is gone, so just tidy up this phone
+  const handleAccountDeleted = async () => {
+    setShowDeleteAccount(false);
+    try { await clearShareMenu(); } catch { /* already gone */ }
+    clearLaunchCache();
+    try { await supabase.auth.signOut(); } catch { /* the sign-in no longer exists */ }
+    setCurrentUser(null);
+    setReminders([]);
+    setMessages([]);
+    setMsgReactionRows([]);
+    setReportedIds(new Set());
+    setIsAdmin(false);
+    setShowInsights(false);
+    toast('Your account was deleted');
   };
 
   const [hiddenContacts, setHiddenContacts] = useState<{ name: string; status: 'archived' | 'deleted' }[]>([]);
@@ -607,6 +641,7 @@ export default function App() {
     setReminders(d.reminderRows.map(row => rowToReminder(row, reactionMap[row.id] || [], voteMap[row.id] || [])));
     setMessages(d.messageRows.map(rowToMessage));
     if (d.msgReactionRows) setMsgReactionRows(d.msgReactionRows);
+    if (d.reportRows) setReportedIds(new Set(d.reportRows.filter(r => r.target_id).map(r => `${r.kind}:${r.target_id}`)));
     setHiddenContacts(d.contactPrefRows.map(c => ({ name: c.contact_name, status: c.status as 'archived' | 'deleted' })));
     if (d.folderRows && d.folderItemRows) {
       setFolders(d.folderRows);
@@ -638,7 +673,7 @@ export default function App() {
       reminders, reactions, messageRes, contactPrefs, votes,
       folderRes, folderItemRes, sessionRes,
       favRes, avatarRes, noteRes, readRes,
-      stateRes, connRes, reqRes, pendRes, groupPicRes, adminRes, muteRes, msgReactRes,
+      stateRes, connRes, reqRes, pendRes, groupPicRes, adminRes, muteRes, msgReactRes, reportRes,
     ] = await Promise.all([
       supabase.from('reminders').select('*').order('created_at', { ascending: false }),
       supabase.from('reminder_reactions').select('*'),
@@ -661,6 +696,7 @@ export default function App() {
       supabase.rpc('is_admin'),
       supabase.from('mutes').select('target'),
       supabase.from('message_reactions').select('message_id, username, emoji'),
+      supabase.from('reports').select('kind, target_id'),
     ]);
 
     const core = reminders.error || reactions.error || messageRes.error || contactPrefs.error || votes.error;
@@ -692,6 +728,7 @@ export default function App() {
       isAdmin: adminRes.data === true,
       muteRows: optional(muteRes, 'Mutes'),
       msgReactionRows: optional(msgReactRes, 'Message reactions'),
+      reportRows: optional(reportRes, 'Reports'),
     };
     applyLoaded(d);
     setLoadError(null);
@@ -1455,8 +1492,10 @@ export default function App() {
 
   // Your feed: leaves out nudges from people you haven't accepted (Public ones still show
   // in Popular) and anything from people you've blocked
-  const feedReminders = reminders.filter(r => !r.awaitingMyAcceptance && !(r.sender !== currentUser && blockedNames.has(r.sender)));
-  const shownMessages = blockedNames.size ? messages.filter(m => !blockedNames.has(m.sender)) : messages;
+  const feedReminders = reminders.filter(r => !r.awaitingMyAcceptance && !(r.sender !== currentUser && blockedNames.has(r.sender)) && !reportedIds.has('nudge:' + r.id));
+  const shownMessages = blockedNames.size || reportedIds.size
+    ? messages.filter(m => !blockedNames.has(m.sender) && !reportedIds.has('message:' + m.id))
+    : messages;
   const receivedReminders = feedReminders.filter(r => r.recipients.includes(currentUser));
   const sentReminders = feedReminders.filter(r => r.sender === currentUser);
 
@@ -1756,7 +1795,7 @@ export default function App() {
     className: 'bg-red-500 text-white',
   }];
 
-  const publicReminders = reminders.filter(r => r.isPublic && !blockedNames.has(r.sender));
+  const publicReminders = reminders.filter(r => r.isPublic && !blockedNames.has(r.sender) && !reportedIds.has('nudge:' + r.id));
   // In Popular and Explore, "checked" is your own Popular check — it never touches the
   // nudge anywhere else (your feed, the sender's view, or anyone else's Popular)
   const asPopular = (r: Reminder): Reminder => {
@@ -2304,6 +2343,7 @@ export default function App() {
     <AvatarContext.Provider value={avatars}>
     <ProfileContext.Provider value={setProfileName}>
     <MessageReactionsContext.Provider value={messageReactionsValue}>
+    <ReportContext.Provider value={setReportTarget}>
     <div
       className="flex flex-col overflow-hidden"
       style={{ height: '100%', width: '100%', background: '#FBF6EC', paddingTop: 'env(safe-area-inset-top)' }}
@@ -3007,7 +3047,9 @@ export default function App() {
                   </span>
                   <span className="flex-1 min-w-0">
                     <span className="block text-base">Insights</span>
-                    <span className="block text-sm text-stone-500">App-wide numbers. Only you can see this.</span>
+                    <span className={`block text-sm ${openReports ? 'text-red-600' : 'text-stone-500'}`}>
+                      {openReports ? `${openReports} report${openReports === 1 ? '' : 's'} to review` : 'App-wide numbers and reports. Only you can see this.'}
+                    </span>
                   </span>
                   <ChevronRight className="w-5 h-5 text-stone-400 shrink-0" />
                 </button>
@@ -3026,6 +3068,14 @@ export default function App() {
                 <LogOut className="w-4 h-4" />
                 Sign out
               </button>
+              <div className="pt-2 flex flex-col items-center gap-3 text-sm">
+                <div className="flex items-center gap-3 text-stone-500">
+                  <button onClick={() => viewInApp('https://addlyapp.com/terms')} className="underline decoration-stone-300">Terms of Use</button>
+                  <span aria-hidden="true">·</span>
+                  <button onClick={() => viewInApp('https://addlyapp.com/privacy')} className="underline decoration-stone-300">Privacy Policy</button>
+                </div>
+                <button onClick={() => setShowDeleteAccount(true)} className="text-red-600">Delete account</button>
+              </div>
             </div>
           )}
         </div>
@@ -3163,6 +3213,19 @@ export default function App() {
           onChangePicture={() => setGroupPictureFor(selectedGroupKey)}
         />
       )}
+      {reportTarget && (
+        <ReportSheet
+          target={reportTarget}
+          currentUser={currentUser}
+          alreadyBlocked={blockedNames.has(reportTarget.targetUser)}
+          onReported={(t) => { if (t.targetId) setReportedIds(prev => new Set(prev).add(`${t.kind}:${t.targetId}`)); }}
+          onBlock={handleBlock}
+          onClose={() => setReportTarget(null)}
+        />
+      )}
+      {showDeleteAccount && (
+        <DeleteAccount username={currentUser} onDeleted={handleAccountDeleted} onClose={() => setShowDeleteAccount(false)} />
+      )}
       {showChatHistory && (
         <ChatHistory
           messages={shownMessages}
@@ -3201,6 +3264,7 @@ export default function App() {
           blocked={blockedNames.has(profileName)}
           onBlock={() => handleBlock(profileName)}
           onUnblock={() => handleUnblock(profileName)}
+          onReport={() => setReportTarget({ kind: 'user', targetUser: profileName })}
         />
       )}
       {showAvatarPicker && (
@@ -3260,6 +3324,7 @@ export default function App() {
         mobileOffset={{ bottom: 'calc(env(safe-area-inset-bottom) + 76px)' }}
       />
     </div>
+    </ReportContext.Provider>
     </MessageReactionsContext.Provider>
     </ProfileContext.Provider>
     </AvatarContext.Provider>
