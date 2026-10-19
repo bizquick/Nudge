@@ -1886,6 +1886,14 @@ export default function App() {
     if (exploreBatch.length === 0 && exploreFresh.length > 0) {
       dealing.current = true;
       dealExplore().finally(() => { dealing.current = false; });
+      return;
+    }
+    // A new day, new things: a batch dealt more than ~20 hours ago gets swapped for a
+    // fresh 10 (anything you favorited stays in Favorites)
+    const dealtAt = exploreBatch.length ? myStates.get(exploreBatch[0].id)?.explore_shown_at : null;
+    if (dealtAt && exploreFresh.length > 0 && Date.now() - new Date(dealtAt).getTime() > 20 * 3600 * 1000) {
+      dealing.current = true;
+      handleExploreMore().finally(() => { dealing.current = false; });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mobileTab, popularSubTab, nudgeStates, exploreBatch.length, exploreFresh.length]);
@@ -2794,7 +2802,16 @@ export default function App() {
                         <p className="mt-6 text-center text-sm text-stone-500">You've seen it all! Come back later to see more cool stuff.</p>
                       )
                     ) : (
-                      <p className="mt-4 text-center text-xs text-stone-500">Check all {exploreBatch.length} to get 10 more. Anything you favorite stays.</p>
+                      <div className="mt-4 text-center">
+                        {exploreFresh.length > 0 ? (
+                          <button onClick={() => { setExploreHeroId(null); handleExploreMore(); }} className="text-[13px] font-medium text-brand-700">
+                            Show me 10 new ones
+                          </button>
+                        ) : (
+                          <p className="text-xs text-stone-500">That's everything for now. Come back later for more.</p>
+                        )}
+                        <p className="mt-1 text-[11px] text-stone-400">Anything you favorite stays in Favorites.</p>
+                      </div>
                     )
                   }
                 />

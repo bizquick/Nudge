@@ -44,7 +44,10 @@ const clean = (text: unknown, max: number) =>
 
 // Keep Explore neutral: skip anything that touches these topics
 const AVOID = /\b(war|wars|warfare|battle|massacre|murder|kill|killed|killing|death|deaths|died|dead|suicide|terror\w*|bomb\w*|shooting|genocide|sex\w*|porn\w*|nude|naked|rape|abuse\w*|drug|drugs|cocaine|heroin|slave\w*|nazi\w*|holocaust|execut\w*|assassin\w*|crime\w*|criminal\w*|prison\w*|disease\w*|cancer|epidemic|pandemic|politic\w*|election\w*|president\w*|senator|congress\w*|parliament\w*|religio\w*|church\w*|mosque\w*|god|gods|deity|weapon\w*|gun|guns|rifle\w*|military|army|soldier\w*|violence|violent|blood\w*|hate|racis\w*)\b/i;
-const neutral = (...texts: string[]) => !AVOID.test(texts.join(' '));
+const neutral = (...texts: string[]) => !AVOID.test(texts.join(' ')) && !NAVAL.test(texts.join(' '));
+const NAVAL = /\b(navy|naval|warship\w*|battleship\w*|ironclad\w*|frigate\w*|destroyer\w*|submarine\w*|cavalry|infantry|regiment\w*|admiral\w*)\b/i;
+// Art: the museum tags each piece; skip nudes, mythology, and religious scenes
+const ART_AVOID = /\b(nude\w*|nudity|breast\w*|naked|erotic\w*|mytholog\w*|venus|cupid\w*|deit\w*|goddess\w*|gods|crucifi\w*|christ|jesus|saint\w*|madonna|virgin|martyr\w*|bibl\w*|religio\w*|skull\w*|corpse\w*)\b/i;
 
 // First sentence or two, for the description
 function blurb(text: string, max = 220): string {
@@ -107,13 +110,14 @@ async function art(count: number): Promise<Pick[]> {
   // The museum's search only goes 1,000 results deep, so pick a random page within that
   const limit = Math.min(100, Math.max(10, count * 2));
   const page = 1 + Math.floor(Math.random() * Math.max(1, Math.floor(1000 / limit) - 1));
-  const data = await getJson(`https://api.artic.edu/api/v1/artworks/search?query[term][is_public_domain]=true&fields=id,title,image_id,artist_title,date_display,medium_display&limit=${limit}&page=${page}`);
+  const data = await getJson(`https://api.artic.edu/api/v1/artworks/search?query[term][is_public_domain]=true&fields=id,title,image_id,artist_title,date_display,medium_display,term_titles&limit=${limit}&page=${page}`);
   const out: Pick[] = [];
   for (const a of data?.data ?? []) {
     if (!a.image_id || !a.title) continue;
     const title = clean(a.title, 120);
     const who = [a.artist_title, a.date_display].filter(Boolean).join(', ');
-    if (!neutral(title, who, String(a.medium_display ?? ''))) continue;
+    const tags = Array.isArray(a.term_titles) ? a.term_titles.join(' ') : '';
+    if (!neutral(title, who, String(a.medium_display ?? ''), tags) || ART_AVOID.test(`${title} ${tags}`)) continue;
     out.push({
       title: who ? `${title} (${clean(who, 80)})` : title,
       content: clean(a.medium_display ? `${a.medium_display}. From the Art Institute of Chicago.` : 'From the Art Institute of Chicago.', 220),
