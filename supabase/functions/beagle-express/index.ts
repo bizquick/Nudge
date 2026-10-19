@@ -1,4 +1,4 @@
-// BeagleExpress - Addly's Explore bot (Supabase Edge Function, deploy it named "beagle-express").
+// BeagleExpress - Addly's Explore bot (Supabase Edge Function; deployed in Supabase, where it got the name "clever-processor").
 //
 // Keeps Explore full: if people post fewer than 1,000 public nudges in a week,
 // BeagleExpress tops it up to 1,000 with neutral, interesting things from free,
@@ -8,8 +8,8 @@
 // anything about war, crime, politics, religion, and the like.
 //
 // Run it once a day (Supabase -> Integrations -> Cron). Each run adds about a
-// seventh of what the week still needs (the very first run adds up to 300 so Explore
-// isn't empty), so running it extra times can't overfill Explore.
+// seventh of what the week still needs (the very first run adds up to 150 so Explore
+// isn't empty; run it a second time by hand to fill it faster), so running it extra times can't overfill Explore.
 // Add ?dry=1 to see what it would do without adding anything.
 //
 // (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are provided automatically. Optional:
@@ -21,8 +21,11 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
 const BOT = 'BeagleExpress';
 const WEEKLY_GOAL = 1000;
-const FIRST_RUN = 300;
-const MAX_PER_RUN = 300;
+const FIRST_RUN = 150;
+const MAX_PER_RUN = 150;
+// Supabase stops a function after 150 seconds; finish gathering well before that
+let STARTED = Date.now();
+const timeLeft = () => 75000 - (Date.now() - STARTED);
 const UA = 'Addly BeagleExpress (support@addlyapp.com)';
 
 interface Pick {
@@ -52,25 +55,34 @@ function blurb(text: string, max = 220): string {
   return end > 80 ? cut.slice(0, end + 1) : cut.replace(/\s+\S*$/, '') + '...';
 }
 
-async function getJson(url: string, timeoutMs = 10000): Promise<any> {
+// Fetch JSON, giving up after a few seconds no matter what (a slow site never holds up the rest)
+async function getJson(url: string, timeoutMs = 8000): Promise<any> {
+  const wait = Math.max(500, Math.min(timeoutMs, timeLeft()));
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, { signal: controller.signal, headers: { 'User-Agent': UA, 'Api-User-Agent': UA, 'AIC-User-Agent': UA } });
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
+  const attempt = (async () => {
+    try {
+      const res = await fetch(url, { signal: controller.signal, headers: { 'User-Agent': UA, 'Api-User-Agent': UA } });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;
+    }
+  })();
+  let timer: number | undefined;
+  const giveUp = new Promise<null>(resolve => { timer = setTimeout(() => { controller.abort(); resolve(null); }, wait); });
+  const result = await Promise.race([attempt, giveUp]);
+  clearTimeout(timer);
+  return result;
 }
 
 // NASA Astronomy Picture of the Day (random days from its 30-year archive)
 async function nasa(count: number): Promise<Pick[]> {
   if (count <= 0) return [];
   const key = Deno.env.get('NASA_API_KEY') || 'DEMO_KEY';
-  const items = await getJson(`https://api.nasa.gov/planetary/apod?api_key=${key}&count=${Math.min(count, 100)}&thumbs=true`, 20000);
+  // NASA answers slowly when asked for many at once: ask for a few batches side by side
+  const batches = await Promise.all(Array.from({ length: Math.min(4, Math.ceil(count / 10)) }, () =>
+    getJson(`https://api.nasa.gov/planetary/apod?api_key=${key}&count=10&thumbs=true`, 30000)));
+  const items = batches.flatMap(b => (Array.isArray(b) ? b : []));
   if (!Array.isArray(items)) return [];
   const out: Pick[] = [];
   for (const it of items) {
@@ -92,8 +104,10 @@ async function nasa(count: number): Promise<Pick[]> {
 // Public-domain art from the Art Institute of Chicago
 async function art(count: number): Promise<Pick[]> {
   if (count <= 0) return [];
-  const page = 1 + Math.floor(Math.random() * 90);
-  const data = await getJson(`https://api.artic.edu/api/v1/artworks/search?query[term][is_public_domain]=true&fields=id,title,image_id,artist_title,date_display,medium_display&limit=${Math.min(100, count * 2)}&page=${page}`);
+  // The museum's search only goes 1,000 results deep, so pick a random page within that
+  const limit = Math.min(100, Math.max(10, count * 2));
+  const page = 1 + Math.floor(Math.random() * Math.max(1, Math.floor(1000 / limit) - 1));
+  const data = await getJson(`https://api.artic.edu/api/v1/artworks/search?query[term][is_public_domain]=true&fields=id,title,image_id,artist_title,date_display,medium_display&limit=${limit}&page=${page}`);
   const out: Pick[] = [];
   for (const a of data?.data ?? []) {
     if (!a.image_id || !a.title) continue;
@@ -116,8 +130,8 @@ async function art(count: number): Promise<Pick[]> {
 async function food(count: number): Promise<Pick[]> {
   const out: Pick[] = [];
   const seen = new Set<string>();
-  for (let round = 0; round < 3 && out.length < count; round++) {
-    const batch = await Promise.all(Array.from({ length: Math.min(10, count - out.length) }, () => getJson('https://www.themealdb.com/api/json/v1/1/random.php')));
+  for (let round = 0; round < 3 && out.length < count && timeLeft() > 5000; round++) {
+    const batch = await Promise.all(Array.from({ length: Math.min(15, count - out.length) }, () => getJson('https://www.themealdb.com/api/json/v1/1/random.php')));
     for (const d of batch) {
       const m = d?.meals?.[0];
       if (!m || seen.has(m.idMeal)) continue;
@@ -152,8 +166,8 @@ async function wikipedia(count: number): Promise<Pick[]> {
     out.push({ title: 'Picture of the day', content: blurb(pic.description?.text ?? ''), url: pic.file_page, preview_image: pic.image?.source ?? pic.thumbnail.source, type: 'interesting' });
   }
   const seen = new Set<string>();
-  for (let round = 0; round < 6 && out.length < count; round++) {
-    const batch = await Promise.all(Array.from({ length: 12 }, () => getJson('https://en.wikipedia.org/api/rest_v1/page/random/summary')));
+  for (let round = 0; round < 6 && out.length < count && timeLeft() > 5000; round++) {
+    const batch = await Promise.all(Array.from({ length: 15 }, () => getJson('https://en.wikipedia.org/api/rest_v1/page/random/summary')));
     for (const p of batch) {
       if (!p || p.type !== 'standard' || !p.thumbnail?.source || !p.content_urls?.mobile?.page) continue;
       const title = clean(p.titles?.normalized ?? p.title, 150);
@@ -177,6 +191,7 @@ function shuffle<T>(list: T[]): T[] {
 }
 
 Deno.serve(async (req) => {
+  STARTED = Date.now();
   const dry = new URL(req.url).searchParams.get('dry') === '1';
   const weekAgo = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
 
@@ -198,9 +213,13 @@ Deno.serve(async (req) => {
 
   if (today <= 0) return reply(200, { peopleThisWeek: people ?? 0, beagleThisWeek: mine ?? 0, added: 0, removedOld: removed, note: 'Explore is full for this week.' });
 
-  // A mix: art 30%, NASA 25%, recipes 15%, Wikipedia the rest
-  const [a, n, f] = await Promise.all([art(Math.round(today * 0.3)), nasa(Math.round(today * 0.25)), food(Math.round(today * 0.15))]);
-  const w = await wikipedia(Math.max(2, today - a.length - n.length - f.length));
+  // A mix, all gathered at the same time: art 30%, NASA 25%, recipes 15%, Wikipedia 30%
+  const [a, n, f, w] = await Promise.all([
+    art(Math.round(today * 0.3)),
+    nasa(Math.round(today * 0.25)),
+    food(Math.round(today * 0.15)),
+    wikipedia(Math.max(2, Math.round(today * 0.3))),
+  ]);
   let picks = shuffle([...a, ...n, ...f, ...w]);
 
   // Never post the same link twice
@@ -213,7 +232,11 @@ Deno.serve(async (req) => {
   const unique = new Set<string>();
   picks = picks.filter(p => !already.has(p.url) && !unique.has(p.url) && unique.add(p.url)).slice(0, today);
 
-  if (dry) return reply(200, { peopleThisWeek: people ?? 0, beagleThisWeek: mine ?? 0, wouldAdd: picks.length, sample: picks.slice(0, 5) });
+  if (dry) return reply(200, {
+    peopleThisWeek: people ?? 0, beagleThisWeek: mine ?? 0, wouldAdd: picks.length,
+    found: { art: a.length, nasa: n.length, recipes: f.length, wikipedia: w.length }, seconds: Math.round((Date.now() - STARTED) / 1000),
+    sample: picks.slice(0, 5),
+  });
 
   let added = 0;
   for (let i = 0; i < picks.length; i += 50) {
