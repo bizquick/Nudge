@@ -300,6 +300,10 @@ interface LoadedData {
   msgReactionRows?: { message_id: string; username: string; emoji: string }[] | null;
   /** Things you've reported (hidden from you) */
   reportRows?: { kind: string; target_id: string | null }[] | null;
+  /** Popular/Explore posts from people you don't know, with anonymous posters masked */
+  publicRows?: any[] | null;
+  /** Which "Anonymous" replies are yours */
+  anonMineRows?: { message_id: string }[] | null;
 }
 
 // A copy of the last launch's data on this phone, so the app opens instantly
@@ -535,6 +539,10 @@ export default function App() {
   const [showDeleteAccount, setShowDeleteAccount] = useState(false);
   // Admin only: how many reports are waiting to be reviewed
   const [openReports, setOpenReports] = useState(0);
+  // Public posts show as "Anonymous" until you choose to show your name (You tab)
+  const [showNamePublicly, setShowNamePublicly] = useState(false);
+  // Your own replies under your anonymous posts (saved as "Anonymous" for everyone else)
+  const [myAnonMessageIds, setMyAnonMessageIds] = useState<Set<string>>(new Set());
   const [dataLoading, setDataLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
@@ -547,7 +555,7 @@ export default function App() {
   const loadProfile = useCallback(async (userId: string) => {
     const { data, error } = await supabase
       .from('profiles')
-      .select('display_name')
+      .select('*')
       .eq('id', userId)
       .maybeSingle();
     if (error) return; // offline or a hiccup: stay signed in, don't kick anyone out
@@ -556,6 +564,7 @@ export default function App() {
       return;
     }
     setCurrentUser(data.display_name);
+    setShowNamePublicly(!!data.show_name_publicly);
     try { localStorage.setItem('addly.cacheOwnerId', userId); localStorage.setItem('addly.cacheOwner', data.display_name); } catch { /* fine */ }
   }, []);
 
@@ -638,7 +647,15 @@ export default function App() {
   const applyLoaded = useCallback((d: LoadedData) => {
     const reactionMap = groupReactions(d.reactionRows);
     const voteMap = groupVotes(d.voteRows);
-    setReminders(d.reminderRows.map(row => rowToReminder(row, reactionMap[row.id] || [], voteMap[row.id] || [])));
+    // Public posts from strangers arrive separately (names masked by the server); add the
+    // ones not already here, with the likes that came along with them
+    const known = new Set(d.reminderRows.map(row => row.id));
+    const publicOnly = (d.publicRows ?? []).filter(row => row && !known.has(row.id));
+    setReminders([
+      ...d.reminderRows.map(row => rowToReminder(row, reactionMap[row.id] || [], voteMap[row.id] || [])),
+      ...publicOnly.map(row => rowToReminder(row, reactionMap[row.id] || [], Array.isArray(row.voters) ? row.voters : voteMap[row.id] || [])),
+    ]);
+    if (d.anonMineRows) setMyAnonMessageIds(new Set(d.anonMineRows.map(r => r.message_id)));
     setMessages(d.messageRows.map(rowToMessage));
     if (d.msgReactionRows) setMsgReactionRows(d.msgReactionRows);
     if (d.reportRows) setReportedIds(new Set(d.reportRows.filter(r => r.target_id).map(r => `${r.kind}:${r.target_id}`)));
@@ -674,6 +691,7 @@ export default function App() {
       folderRes, folderItemRes, sessionRes,
       favRes, avatarRes, noteRes, readRes,
       stateRes, connRes, reqRes, pendRes, groupPicRes, adminRes, muteRes, msgReactRes, reportRes,
+      publicRes, anonMineRes,
     ] = await Promise.all([
       supabase.from('reminders').select('*').order('created_at', { ascending: false }),
       supabase.from('reminder_reactions').select('*'),
@@ -697,6 +715,8 @@ export default function App() {
       supabase.from('mutes').select('target'),
       supabase.from('message_reactions').select('message_id, username, emoji'),
       supabase.from('reports').select('kind, target_id'),
+      supabase.rpc('public_nudges'),
+      supabase.from('message_authors').select('message_id'),
     ]);
 
     const core = reminders.error || reactions.error || messageRes.error || contactPrefs.error || votes.error;
@@ -729,6 +749,8 @@ export default function App() {
       muteRows: optional(muteRes, 'Mutes'),
       msgReactionRows: optional(msgReactRes, 'Message reactions'),
       reportRows: optional(reportRes, 'Reports'),
+      publicRows: optional(publicRes, 'Public posts'),
+      anonMineRows: optional(anonMineRes, 'Anonymous replies'),
     };
     applyLoaded(d);
     setLoadError(null);
@@ -1384,6 +1406,21 @@ export default function App() {
     }
   };
 
+  const avatarsWithBots = useMemo(() => ({ ...avatars, Anonymous: 'emoji:🎭', BeagleExpress: 'emoji:🐶' }), [avatars]);
+  const openProfileFor = useCallback((name: string) => { if (name !== 'Anonymous') setProfileName(name); }, []);
+  // "Show my name on public posts" in the You tab
+  const handleToggleShowName = async (value: boolean) => {
+    setShowNamePublicly(value);
+    const { error } = await supabase.from('profiles').update({ show_name_publicly: value }).eq('id', currentUserId);
+    if (error) {
+      console.error(error);
+      setShowNamePublicly(!value);
+      toast("Couldn't save that setting");
+      return;
+    }
+    toast(value ? 'Your name now shows on your public posts' : 'Your public posts now show as Anonymous');
+  };
+
   const handleAddMessage = async (reminderId: string, text: string, attachments: Attachment[] = []) => {
     if (!currentUser) return;
     const payload = { reminder_id: reminderId, sender: currentUser, text, ...(attachments.length ? { attachments } : {}) };
@@ -1394,6 +1431,7 @@ export default function App() {
       return;
     }
     setMessages(prev => [...prev, rowToMessage(data)]);
+    if (data.sender === 'Anonymous') setMyAnonMessageIds(prev => new Set(prev).add(data.id));
   };
 
   // ---- Reactions on chat messages (one per person: pick another to change it, same one to remove) ----
@@ -1493,9 +1531,15 @@ export default function App() {
   // Your feed: leaves out nudges from people you haven't accepted (Public ones still show
   // in Popular) and anything from people you've blocked
   const feedReminders = reminders.filter(r => !r.awaitingMyAcceptance && !(r.sender !== currentUser && blockedNames.has(r.sender)) && !reportedIds.has('nudge:' + r.id));
-  const shownMessages = blockedNames.size || reportedIds.size
-    ? messages.filter(m => !blockedNames.has(m.sender) && !reportedIds.has('message:' + m.id))
-    : messages;
+  const shownMessages = useMemo(() => {
+    const visible = blockedNames.size || reportedIds.size
+      ? messages.filter(m => !blockedNames.has(m.sender) && !reportedIds.has('message:' + m.id))
+      : messages;
+    // Your own anonymous replies still look like yours to you
+    return myAnonMessageIds.size
+      ? visible.map(m => (m.sender === 'Anonymous' && myAnonMessageIds.has(m.id) ? { ...m, sender: currentUser } : m))
+      : visible;
+  }, [messages, blockedNames, reportedIds, myAnonMessageIds, currentUser]);
   const receivedReminders = feedReminders.filter(r => r.recipients.includes(currentUser));
   const sentReminders = feedReminders.filter(r => r.sender === currentUser);
 
@@ -2340,8 +2384,8 @@ export default function App() {
   }
 
   return (
-    <AvatarContext.Provider value={avatars}>
-    <ProfileContext.Provider value={setProfileName}>
+    <AvatarContext.Provider value={avatarsWithBots}>
+    <ProfileContext.Provider value={openProfileFor}>
     <MessageReactionsContext.Provider value={messageReactionsValue}>
     <ReportContext.Provider value={setReportTarget}>
     <div
@@ -3009,6 +3053,27 @@ export default function App() {
                 </span>
                 <ChevronRight className="w-5 h-5 text-stone-400 shrink-0" />
               </button>
+              {/* Public posts are anonymous until you choose to show your name */}
+              <div className="bg-white rounded-xl border border-stone-200 p-4 flex items-center gap-3">
+                <span className="w-10 h-10 rounded-xl bg-stone-100 flex items-center justify-center shrink-0 text-xl" aria-hidden="true">
+                  {showNamePublicly ? '🙂' : '🎭'}
+                </span>
+                <span className="flex-1 min-w-0">
+                  <span className="block text-base">Public posts</span>
+                  <span className="block text-sm text-stone-500">
+                    {showNamePublicly ? `Your public nudges show your name (${currentUser}).` : 'Your public nudges show as Anonymous.'}
+                  </span>
+                </span>
+                <button
+                  role="switch"
+                  aria-checked={showNamePublicly}
+                  aria-label="Show my name on public posts"
+                  onClick={() => handleToggleShowName(!showNamePublicly)}
+                  className={`relative w-12 h-7 rounded-full shrink-0 transition-colors ${showNamePublicly ? 'bg-brand-600' : 'bg-stone-300'}`}
+                >
+                  <span className={`absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white shadow transition-transform ${showNamePublicly ? 'translate-x-5' : ''}`} />
+                </button>
+              </div>
               <div className="bg-white rounded-xl border border-stone-200 p-5">
                 <p className="text-base">Invite friends</p>
                 <p className="text-sm text-stone-500 mt-1">
@@ -3178,6 +3243,7 @@ export default function App() {
       {/* Quick Send Modal */}
       {quickSendTo && (
         <QuickSendModal
+          postsAnonymously={!showNamePublicly}
           recipient={quickSendTo}
           knownRecipients={contacts}
           knownGroups={composeGroups}
@@ -3278,6 +3344,7 @@ export default function App() {
       {/* "Nudge group" from inside a group chat — everyone pre-filled, sent as a group */}
       {quickSendGroup && (
         <QuickSendModal
+          postsAnonymously={!showNamePublicly}
           recipient=""
           initialRecipients={quickSendGroup}
           knownRecipients={contacts}
@@ -3290,6 +3357,7 @@ export default function App() {
       {/* New Reminder Modal */}
       {showNewReminderModal && (
         <QuickSendModal
+          postsAnonymously={!showNamePublicly}
           recipient=""
           knownRecipients={contacts}
           knownGroups={composeGroups}
@@ -3301,6 +3369,7 @@ export default function App() {
       {/* Forward Modal — a fresh nudge from you, prefilled from the original */}
       {forwardingReminder && (
         <QuickSendModal
+          postsAnonymously={!showNamePublicly}
           recipient=""
           knownRecipients={contacts}
           knownGroups={composeGroups}

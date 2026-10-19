@@ -87,7 +87,7 @@ export function ReportSheet({ target, currentUser, alreadyBlocked, onReported, o
               We review every report within 24 hours and remove anything that breaks the rules.
               {target.kind !== 'user' && ' It’s hidden for you in the meantime.'}
             </p>
-            {target.targetUser !== currentUser && !alreadyBlocked && (
+            {target.targetUser !== currentUser && target.targetUser !== 'Anonymous' && !alreadyBlocked && (
               <button
                 onClick={() => { onBlock(target.targetUser); onClose(); }}
                 className="mt-5 w-full h-12 rounded-2xl border border-red-200 text-red-600 active:bg-red-50"
@@ -105,7 +105,7 @@ export function ReportSheet({ target, currentUser, alreadyBlocked, onReported, o
               <Flag className="w-5 h-5 text-red-500" />
               <p className="text-lg text-stone-900">Report {target.kind === 'user' ? what : `this ${what}`}</p>
             </div>
-            <p className="mt-1 text-sm text-stone-500">What's wrong with it? {target.kind !== 'user' && `${target.targetUser} won't know you reported it.`}</p>
+            <p className="mt-1 text-sm text-stone-500">What's wrong with it? {target.kind !== 'user' && `${target.targetUser === 'Anonymous' ? 'The poster' : target.targetUser} won't know you reported it.`}</p>
             <div className="mt-3 divide-y divide-stone-100 rounded-2xl border border-stone-200 overflow-hidden">
               {REASONS.map(r => (
                 <button

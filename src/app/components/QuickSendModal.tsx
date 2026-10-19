@@ -30,6 +30,8 @@ interface QuickSendModalProps {
   onSubmit: (reminder: NewNudge) => void;
   /** Pre-fill the "To" line (e.g. "Nudge group" from inside a group chat) */
   initialRecipients?: string[];
+  /** Public posts show as "Anonymous" (until you turn your name on in the You tab) */
+  postsAnonymously?: boolean;
   initialValues?: {
     type: ReminderType | null;
     title: string;
@@ -50,7 +52,7 @@ function normalizeUrl(raw: string): string {
   return /^[a-z][a-z0-9+.-]*:\/\//i.test(u) ? u : `https://${u}`;
 }
 
-export function QuickSendModal({ recipient, knownRecipients, knownGroups = [], currentUser, onClose, onSubmit, initialValues, initialRecipients }: QuickSendModalProps) {
+export function QuickSendModal({ recipient, knownRecipients, knownGroups = [], currentUser, onClose, onSubmit, initialValues, initialRecipients, postsAnonymously = true }: QuickSendModalProps) {
   const [type, setType] = useState<ReminderType | null>(initialValues?.type ?? null);
   const [title, setTitle] = useState(initialValues?.title ?? '');
   const [content, setContent] = useState(initialValues?.content ?? '');
@@ -757,6 +759,13 @@ export function QuickSendModal({ recipient, knownRecipients, knownGroups = [], c
               To-do list
             </button>
           </div>
+          {isPublic && (
+            <p className="mt-2 text-[12px] text-stone-500">
+              {postsAnonymously
+                ? '🎭 Shows in Popular and Explore as Anonymous. To show your name, go to You → Public posts.'
+                : `Shows in Popular and Explore with your name (${currentUser}).`}
+            </p>
+          )}
         </div>
 
         {/* Send — always visible at the bottom */}
