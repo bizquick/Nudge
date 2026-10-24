@@ -260,6 +260,7 @@ struct ShareView: View {
             }
         }
         .navigationViewStyle(.stack)
+        .preferredColorScheme(.light)
     }
 
     private var form: some View {
