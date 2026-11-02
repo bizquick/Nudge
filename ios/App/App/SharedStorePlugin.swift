@@ -1,5 +1,6 @@
 import Foundation
 import Capacitor
+import WidgetKit
 
 /// Lets the app hand the Share menu what it needs: your private send-key, your name,
 /// and the people you nudge most. Stored in the app group that both can read.
@@ -9,7 +10,8 @@ public class SharedStorePlugin: CAPPlugin, CAPBridgedPlugin {
     public let jsName = "SharedStore"
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "set", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "clear", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "clear", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "reloadWidgets", returnType: CAPPluginReturnPromise)
     ]
 
     static let groupId = "group.com.brandonchirco.nudge"
@@ -26,9 +28,16 @@ public class SharedStorePlugin: CAPPlugin, CAPBridgedPlugin {
         call.resolve()
     }
 
-    /// Signing out: the Share menu forgets everything
+    /// Signing out: the Share menu (and the widget) forget everything
     @objc func clear(_ call: CAPPluginCall) {
         defaults?.dictionaryRepresentation().keys.forEach { defaults?.removeObject(forKey: $0) }
+        WidgetCenter.shared.reloadAllTimelines()
+        call.resolve()
+    }
+
+    /// The Home Screen widget redraws with what's now in the queue
+    @objc func reloadWidgets(_ call: CAPPluginCall) {
+        WidgetCenter.shared.reloadAllTimelines()
         call.resolve()
     }
 }

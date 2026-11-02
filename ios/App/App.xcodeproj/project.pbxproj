@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		137B88713496629DE439B4EF /* AddlyWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = FF6DF028AAD549C82455DE70 /* AddlyWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		234A47178304B4B1195245FE /* ShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = E5E119EF3DE04887DD4610FE /* ShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
 		4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */ = {isa = PBXBuildFile; productRef = 4D22ABE82AF431CB00220026 /* CapApp-SPM */; };
@@ -19,8 +20,12 @@
 		51CA415F2FECC83066F0319E /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BF24F7D979A5EECB2208C0D /* ShareViewController.swift */; };
 		598D82CD21BE12C8FAC9CC48 /* SharedStorePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30B6407D170DC7FBCB20BFD1 /* SharedStorePlugin.swift */; };
 		7FDD3BDD2FA2AA0427F7C41D /* AddlyViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF4CD1BB142D1CAF362EA305 /* AddlyViewController.swift */; };
+		8BD90C80A9ED0BBDDC109017 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3CC65546F97E961A4DF1832E /* WidgetKit.framework */; };
+		901AC70903C130AFD010686E /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 44BDA87551CDF46ECCD8F3E7 /* SwiftUI.framework */; };
 		9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9582B6822FE993A50072D4E8 /* SceneDelegate.swift */; };
 		A94CB3EA2DA9550CE6207152 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7A451A20157C7F49E3538AE2 /* Foundation.framework */; };
+		B43EA296AE7E7DB9D835D9D9 /* AddlyWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5E6DBF1EE26647DDFDA8B96 /* AddlyWidget.swift */; };
+		E1EED5525A0D1E339B3CDA2C /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7A451A20157C7F49E3538AE2 /* Foundation.framework */; };
 		F85ECC7E39388D4D649E051D /* ShareView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 359BB6F0D94A71F695DBA858 /* ShareView.swift */; };
 /* End PBXBuildFile section */
 
@@ -32,6 +37,13 @@
 			remoteGlobalIDString = 23BAB9A2F68A1C1CC41EE1DD;
 			remoteInfo = ShareExtension;
 		};
+		B5E8AE7350BC6CF8BC8AC83F /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 504EC2FC1FED79650016851F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A33D18BACCA43F98D654357A;
+			remoteInfo = AddlyWidget;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -42,6 +54,7 @@
 			dstSubfolderSpec = 13;
 			files = (
 				234A47178304B4B1195245FE /* ShareExtension.appex in Embed Foundation Extensions */,
+				137B88713496629DE439B4EF /* AddlyWidget.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -55,6 +68,9 @@
 		2FAD9762203C412B000D30F8 /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = config.xml; sourceTree = "<group>"; };
 		30B6407D170DC7FBCB20BFD1 /* SharedStorePlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SharedStorePlugin.swift; sourceTree = "<group>"; };
 		359BB6F0D94A71F695DBA858 /* ShareView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareView.swift; sourceTree = "<group>"; };
+		39D07DBDCF4361F9BE3DA6D2 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		3CC65546F97E961A4DF1832E /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		44BDA87551CDF46ECCD8F3E7 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		50379B222058CBB4000EE86E /* capacitor.config.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = capacitor.config.json; sourceTree = "<group>"; };
 		504EC3041FED79650016851F /* App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = App.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		504EC3071FED79650016851F /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -68,10 +84,23 @@
 		9582B6822FE993A50072D4E8 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
 		E5E119EF3DE04887DD4610FE /* ShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		E5E6DBF1EE26647DDFDA8B96 /* AddlyWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AddlyWidget.swift; sourceTree = "<group>"; };
+		F751754912D9B48CD05DF58D /* AddlyWidget.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = AddlyWidget.entitlements; sourceTree = "<group>"; };
 		FF4CD1BB142D1CAF362EA305 /* AddlyViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AddlyViewController.swift; sourceTree = "<group>"; };
+		FF6DF028AAD549C82455DE70 /* AddlyWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = AddlyWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		326AD011C873B601A392EE88 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E1EED5525A0D1E339B3CDA2C /* Foundation.framework in Frameworks */,
+				8BD90C80A9ED0BBDDC109017 /* WidgetKit.framework in Frameworks */,
+				901AC70903C130AFD010686E /* SwiftUI.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		33FA929C6994CE68677A9BD7 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -91,6 +120,17 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		099CEA896C5B9C62B15DB81D /* AddlyWidget */ = {
+			isa = PBXGroup;
+			children = (
+				E5E6DBF1EE26647DDFDA8B96 /* AddlyWidget.swift */,
+				39D07DBDCF4361F9BE3DA6D2 /* Info.plist */,
+				F751754912D9B48CD05DF58D /* AddlyWidget.entitlements */,
+			);
+			name = AddlyWidget;
+			path = AddlyWidget;
+			sourceTree = "<group>";
+		};
 		1D1E3EE8F36D13E7D2FFAD4A /* ShareExtension */ = {
 			isa = PBXGroup;
 			children = (
@@ -107,6 +147,8 @@
 			isa = PBXGroup;
 			children = (
 				C28DF4D4FF26C9901CF19373 /* iOS */,
+				3CC65546F97E961A4DF1832E /* WidgetKit.framework */,
+				44BDA87551CDF46ECCD8F3E7 /* SwiftUI.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -119,6 +161,7 @@
 				504EC3051FED79650016851F /* Products */,
 				45151EF4B6DFFC546E0DECD2 /* Frameworks */,
 				1D1E3EE8F36D13E7D2FFAD4A /* ShareExtension */,
+				099CEA896C5B9C62B15DB81D /* AddlyWidget */,
 			);
 			sourceTree = "<group>";
 		};
@@ -127,6 +170,7 @@
 			children = (
 				504EC3041FED79650016851F /* App.app */,
 				E5E119EF3DE04887DD4610FE /* ShareExtension.appex */,
+				FF6DF028AAD549C82455DE70 /* AddlyWidget.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -191,6 +235,7 @@
 			);
 			dependencies = (
 				3C6E2A6EBE2974585FA9DAE1 /* PBXTargetDependency */,
+				3410F76F354467879DBC22A2 /* PBXTargetDependency */,
 			);
 			name = App;
 			packageProductDependencies = (
@@ -200,14 +245,31 @@
 			productReference = 504EC3041FED79650016851F /* App.app */;
 			productType = "com.apple.product-type.application";
 		};
+		A33D18BACCA43F98D654357A /* AddlyWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B03A565655A5940DE40FE10D /* Build configuration list for PBXNativeTarget "AddlyWidget" */;
+			buildPhases = (
+				90CEF4AFA2DA8198D4E43D18 /* Sources */,
+				326AD011C873B601A392EE88 /* Frameworks */,
+				F15E5E6FEFF0F3473169342E /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = AddlyWidget;
+			productName = AddlyWidget;
+			productReference = FF6DF028AAD549C82455DE70 /* AddlyWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
 		504EC2FC1FED79650016851F /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
-				LastSwiftUpdateCheck = 0920;
-				LastUpgradeCheck = 0920;
+				LastSwiftUpdateCheck = 920;
+				LastUpgradeCheck = 920;
 				TargetAttributes = {
 					504EC3031FED79650016851F = {
 						CreatedOnToolsVersion = 9.2;
@@ -234,6 +296,7 @@
 			targets = (
 				504EC3031FED79650016851F /* App */,
 				23BAB9A2F68A1C1CC41EE1DD /* ShareExtension */,
+				A33D18BACCA43F98D654357A /* AddlyWidget */,
 			);
 		};
 /* End PBXProject section */
@@ -253,6 +316,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		ABAC995ADE50049443F74469 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F15E5E6FEFF0F3473169342E /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -282,9 +352,23 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		90CEF4AFA2DA8198D4E43D18 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B43EA296AE7E7DB9D835D9D9 /* AddlyWidget.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		3410F76F354467879DBC22A2 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = AddlyWidget;
+			target = A33D18BACCA43F98D654357A /* AddlyWidget */;
+			targetProxy = B5E8AE7350BC6CF8BC8AC83F /* PBXContainerItemProxy */;
+		};
 		3C6E2A6EBE2974585FA9DAE1 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			name = ShareExtension;
@@ -470,6 +554,36 @@
 			};
 			name = Release;
 		};
+		BF07A3030DFB4DE5D7FBD73A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_ENTITLEMENTS = AddlyWidget/AddlyWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 8;
+				DEVELOPMENT_TEAM = M686VAWANX;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = AddlyWidget/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.brandonchirco.nudge.widget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 		CB201E5050CFC1C7B5EC95DF /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -489,6 +603,35 @@
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.brandonchirco.nudge.share;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		D79ABF5C08B870E21D59A994 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_ENTITLEMENTS = AddlyWidget/AddlyWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 8;
+				DEVELOPMENT_TEAM = M686VAWANX;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = AddlyWidget/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.brandonchirco.nudge.widget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
@@ -553,6 +696,15 @@
 			buildConfigurations = (
 				504EC3171FED79650016851F /* Debug */,
 				504EC3181FED79650016851F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B03A565655A5940DE40FE10D /* Build configuration list for PBXNativeTarget "AddlyWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BF07A3030DFB4DE5D7FBD73A /* Release */,
+				D79ABF5C08B870E21D59A994 /* Debug */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

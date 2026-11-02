@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Globe, Music, Video, Type as TypeIcon, Sparkles, UtensilsCrossed, Lightbulb, Send, X, Paperclip, Loader2, Link2, Bookmark, ListChecks, Plus, FileText, Users, Smile } from 'lucide-react';
+import { Globe, Music, Video, Type as TypeIcon, Sparkles, UtensilsCrossed, Lightbulb, Send, X, Paperclip, Loader2, Link2, Bookmark, ListChecks, Plus, FileText, Users, Smile, ChevronUp, ChevronDown, Eye, EyeOff, Pencil, Check } from 'lucide-react';
 import type { ReminderType, NewNudge, Attachment } from '../App';
 import { supabase } from '../utils/supabase/client';
 import { searchPeople } from '../utils/people';
@@ -32,6 +32,8 @@ interface QuickSendModalProps {
   initialRecipients?: string[];
   /** Public posts show as "Anonymous" (until you turn your name on in the You tab) */
   postsAnonymously?: boolean;
+  /** Rename a group chat (from the composer's group Edit panel) */
+  onRenameGroup?: (groupKey: string, name: string) => void;
   initialValues?: {
     type: ReminderType | null;
     title: string;
@@ -52,7 +54,7 @@ function normalizeUrl(raw: string): string {
   return /^[a-z][a-z0-9+.-]*:\/\//i.test(u) ? u : `https://${u}`;
 }
 
-export function QuickSendModal({ recipient, knownRecipients, knownGroups = [], currentUser, onClose, onSubmit, initialValues, initialRecipients, postsAnonymously = true }: QuickSendModalProps) {
+export function QuickSendModal({ recipient, knownRecipients, knownGroups = [], currentUser, onClose, onSubmit, initialValues, initialRecipients, postsAnonymously = true, onRenameGroup }: QuickSendModalProps) {
   const [type, setType] = useState<ReminderType | null>(initialValues?.type ?? null);
   const [title, setTitle] = useState(initialValues?.title ?? '');
   const [content, setContent] = useState(initialValues?.content ?? '');
@@ -93,6 +95,35 @@ export function QuickSendModal({ recipient, knownRecipients, knownGroups = [], c
     setSelectedRecipients(prev => Array.from(new Set([...prev, ...members])));
     setSendMode('group');
     setRecipientQuery('');
+  };
+
+  // Your group shortcuts: arrange the order, hide ones you don't use, rename them.
+  // Remembered on this phone.
+  const GROUP_PREFS = `addly.groupChips.${currentUser}`;
+  const [groupPrefs, setGroupPrefs] = useState<{ order: string[]; hidden: string[] }>(() => {
+    try { return { order: [], hidden: [], ...JSON.parse(localStorage.getItem(GROUP_PREFS) || '{}') }; } catch { return { order: [], hidden: [] }; }
+  });
+  const saveGroupPrefs = (next: { order: string[]; hidden: string[] }) => {
+    setGroupPrefs(next);
+    try { localStorage.setItem(GROUP_PREFS, JSON.stringify(next)); } catch { /* storage unavailable */ }
+  };
+  const arrangedGroups = [...knownGroups].sort((a, b) => {
+    const ia = groupPrefs.order.indexOf(a.key), ib = groupPrefs.order.indexOf(b.key);
+    return (ia < 0 ? 1e6 : ia) - (ib < 0 ? 1e6 : ib);
+  });
+  const shownGroups = arrangedGroups.filter(g => !groupPrefs.hidden.includes(g.key));
+  const [editingGroups, setEditingGroups] = useState(false);
+  const [renaming, setRenaming] = useState<{ key: string; name: string } | null>(null);
+  const moveGroup = (key: string, by: -1 | 1) => {
+    const keys = arrangedGroups.map(g => g.key);
+    const i = keys.indexOf(key), j = i + by;
+    if (i < 0 || j < 0 || j >= keys.length) return;
+    [keys[i], keys[j]] = [keys[j], keys[i]];
+    saveGroupPrefs({ ...groupPrefs, order: keys });
+  };
+  const toggleGroupHidden = (key: string) => {
+    const hidden = groupPrefs.hidden.includes(key) ? groupPrefs.hidden.filter(k => k !== key) : [...groupPrefs.hidden, key];
+    saveGroupPrefs({ ...groupPrefs, hidden });
   };
 
   // Someone you haven't nudged before: search Addly by username, or by their exact email
@@ -465,9 +496,9 @@ export function QuickSendModal({ recipient, knownRecipients, knownGroups = [], c
             </div>
 
             {/* Your groups, one tap to address the whole group */}
-            {!recipient && !recipientQuery && selectedRecipients.filter(r => r !== currentUser).length === 0 && knownGroups.length > 0 && (
+            {!recipient && !recipientQuery && selectedRecipients.filter(r => r !== currentUser).length === 0 && knownGroups.length > 0 && !editingGroups && (
               <div className="mt-2 -mx-4 px-4 flex gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                {knownGroups.slice(0, 12).map(g => (
+                {shownGroups.slice(0, 20).map(g => (
                   <button
                     key={g.key}
                     type="button"
@@ -481,6 +512,67 @@ export function QuickSendModal({ recipient, knownRecipients, knownGroups = [], c
                     <span className="max-w-[140px] truncate">{g.label}</span>
                   </button>
                 ))}
+                <button
+                  type="button"
+                  onClick={() => setEditingGroups(true)}
+                  className="shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-full text-xs text-brand-700 active:bg-stone-100"
+                >
+                  <Pencil className="w-3 h-3" /> Edit
+                </button>
+              </div>
+            )}
+
+            {/* Arrange your groups: move up/down, hide, rename */}
+            {editingGroups && (
+              <div className="mt-2 rounded-xl border border-stone-200 bg-stone-50 p-2">
+                <div className="flex items-center justify-between px-1 pb-1.5">
+                  <span className="text-xs font-medium text-stone-600">Your groups</span>
+                  <button type="button" onClick={() => { setEditingGroups(false); setRenaming(null); }} className="text-xs font-medium text-brand-700">Done</button>
+                </div>
+                <div className="max-h-56 overflow-y-auto divide-y divide-stone-200/70">
+                  {arrangedGroups.map((g, i) => {
+                    const hidden = groupPrefs.hidden.includes(g.key);
+                    return (
+                      <div key={g.key} className={`flex items-center gap-1.5 py-1.5 ${hidden ? 'opacity-50' : ''}`}>
+                        {renaming?.key === g.key ? (
+                          <form
+                            className="flex-1 min-w-0 flex items-center gap-1"
+                            onSubmit={(e) => { e.preventDefault(); if (renaming.name.trim()) onRenameGroup?.(g.key, renaming.name.trim()); setRenaming(null); }}
+                          >
+                            <input
+                              autoFocus
+                              value={renaming.name}
+                              onChange={(e) => setRenaming({ key: g.key, name: e.target.value })}
+                              className="flex-1 min-w-0 px-2 py-1 rounded-lg border border-stone-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+                              placeholder="Group name"
+                            />
+                            <button type="submit" className="p-1.5 text-brand-700" aria-label="Save name"><Check className="w-4 h-4" /></button>
+                          </form>
+                        ) : (
+                          <span className="flex-1 min-w-0 pl-1">
+                            <span className="block text-sm text-stone-800 truncate">{g.label}</span>
+                            <span className="block text-[11px] text-stone-500 truncate">{g.members.join(', ')}</span>
+                          </span>
+                        )}
+                        {onRenameGroup && renaming?.key !== g.key && (
+                          <button type="button" onClick={() => setRenaming({ key: g.key, name: g.label })} className="p-1.5 text-stone-500" aria-label={`Rename ${g.label}`}>
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        <button type="button" onClick={() => toggleGroupHidden(g.key)} className="p-1.5 text-stone-500" aria-label={hidden ? `Show ${g.label}` : `Hide ${g.label}`}>
+                          {hidden ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                        <button type="button" onClick={() => moveGroup(g.key, -1)} disabled={i === 0} className="p-1 text-stone-500 disabled:opacity-25" aria-label={`Move ${g.label} up`}>
+                          <ChevronUp className="w-4 h-4" />
+                        </button>
+                        <button type="button" onClick={() => moveGroup(g.key, 1)} disabled={i === arrangedGroups.length - 1} className="p-1 text-stone-500 disabled:opacity-25" aria-label={`Move ${g.label} down`}>
+                          <ChevronDown className="w-4 h-4" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="px-1 pt-1.5 text-[11px] text-stone-500">Hidden groups still work when you type their name.</p>
               </div>
             )}
 

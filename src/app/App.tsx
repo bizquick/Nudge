@@ -26,7 +26,9 @@ import nudgeLogo from '../imports/image-3.png';
 import nIconTonal from '../imports/n-icon-tonal.png';
 import { supabase } from './utils/supabase/client';
 import { registerPush, unregisterPush, setBadge, type PushTarget } from './utils/push';
-import { syncShareMenu, clearShareMenu } from './utils/shareBridge';
+import { syncShareMenu, clearShareMenu, syncWidget } from './utils/shareBridge';
+import { linkImage } from './utils/platform';
+import { CATEGORY_LABELS } from './components/SortMenu';
 import { cleanLinkTitle } from './utils/cleanTitle';
 import { App as CapacitorApp } from '@capacitor/app';
 import { Share } from '@capacitor/share';
@@ -276,6 +278,23 @@ function groupKeyFor(r: Reminder): string | null {
 }
 
 // What the app loads at launch (raw rows, so it can also be saved and reused next launch)
+// The server hands back at most 1,000 rows per request. Lists that can grow past that
+// (nudges, messages, reactions, likes, your per-nudge state) are fetched page by page.
+async function fetchAll<T>(page: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>): Promise<{ data: T[] | null; error: unknown }> {
+  const SIZE = 1000;
+  const all: T[] = [];
+  for (let from = 0; from < SIZE * 50; from += SIZE) {
+    const { data, error } = await page(from, from + SIZE - 1);
+    if (error) return { data: all.length ? all : null, error };
+    all.push(...(data ?? []));
+    if (!data || data.length < SIZE) break;
+  }
+  return { data: all, error: null };
+}
+
+/** A value inside a server filter, quoted so names with spaces or commas work */
+const filterValue = (v: string) => `"${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+
 interface LoadedData {
   reminderRows: any[];
   reactionRows: any[];
@@ -333,6 +352,9 @@ function clearLaunchCache() {
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<string | null>(null);
+  // Who's signed in, for loading only their own nudges
+  const meRef = useRef<string | null>(null);
+  meRef.current = currentUser;
   const [authChecked, setAuthChecked] = useState(false);
   const [selectedSender, setSelectedSender] = useState<string | null>(null);
   const [mobileTab, setMobileTab] = useState<'inbox' | 'people' | 'popular' | 'you'>('inbox');
@@ -682,6 +704,7 @@ export default function App() {
   }, []);
 
   const loadData = useCallback(async () => {
+    const me = meRef.current;
     const optional = <T,>(r: { data: T | null; error: unknown }, what: string): T | null => {
       if (r.error) { console.warn(`${what} unavailable:`, r.error); return null; }
       return r.data;
@@ -693,11 +716,17 @@ export default function App() {
       stateRes, connRes, reqRes, pendRes, groupPicRes, adminRes, muteRes, msgReactRes, reportRes,
       publicRes, anonMineRes,
     ] = await Promise.all([
-      supabase.from('reminders').select('*').order('created_at', { ascending: false }),
-      supabase.from('reminder_reactions').select('*'),
-      supabase.from('messages').select('*').order('created_at', { ascending: true }),
+      // Only nudges you're in (public posts from others come through public_nudges below,
+      // so Explore filling up can never crowd out your own nudges)
+      fetchAll((from, to) => {
+        const q = supabase.from('reminders').select('*');
+        return (me ? q.or(`sender.eq.${filterValue(me)},recipients.cs.{${filterValue(me)}}`) : q)
+          .order('created_at', { ascending: false }).range(from, to);
+      }),
+      fetchAll((from, to) => supabase.from('reminder_reactions').select('*').order('created_at', { ascending: true }).range(from, to)),
+      fetchAll((from, to) => supabase.from('messages').select('*').order('created_at', { ascending: true }).range(from, to)),
       supabase.from('contact_prefs').select('contact_name, status'),
-      supabase.from('reminder_votes').select('*'),
+      fetchAll((from, to) => supabase.from('reminder_votes').select('*').order('reminder_id').range(from, to)),
       supabase.from('favorite_folders').select('id, name').order('created_at', { ascending: true }),
       supabase.from('favorite_folder_items').select('reminder_id, folder_id'),
       supabase.auth.getSession(),
@@ -706,14 +735,14 @@ export default function App() {
       supabase.from('profiles').select('display_name, avatar').not('avatar', 'is', null),
       supabase.from('chat_notes').select('chat_key, note'),
       supabase.from('nudge_reads').select('reminder_id, seen_at'),
-      supabase.from('nudge_user_state').select('owner_name, reminder_id, checked_at, archived_at, popular_checked_at, explore_shown_at, explore_done_at'),
+      fetchAll((from, to) => supabase.from('nudge_user_state').select('owner_name, reminder_id, checked_at, archived_at, popular_checked_at, explore_shown_at, explore_done_at').order('reminder_id').range(from, to)),
       supabase.from('connections').select('*'),
       supabase.rpc('my_nudge_requests'),
       supabase.rpc('my_pending_recipients'),
       supabase.from('group_avatars').select('group_key, avatar'),
       supabase.rpc('is_admin'),
       supabase.from('mutes').select('target'),
-      supabase.from('message_reactions').select('message_id, username, emoji'),
+      fetchAll((from, to) => supabase.from('message_reactions').select('message_id, username, emoji').order('message_id').range(from, to)),
       supabase.from('reports').select('kind, target_id'),
       supabase.rpc('public_nudges'),
       supabase.from('message_authors').select('message_id'),
@@ -1753,12 +1782,12 @@ export default function App() {
       : !isGroupReminder(r) && (r.sender === selectedSender || realRecipients(r)[0] === selectedSender);
   const chatReminders = selectedSender ? allUserReminders.filter(inSelectedChat) : [];
   const chatCheckedCount = chatReminders.filter(isDone).length;
-  const chatHasNewInChecked = chatReminders.some(r => hasNewMessages(r.id));
 
   const displayedReminders = (() => {
     if (selectedSender) {
-      // A nudge you have open stays put until you close it, even if you just checked it
-      return chatOrder(chatReminders.filter(r => r.id === expandedId || (showChecked ? isDone(r) : !isDone(r))));
+      // Every nudge in the chat, checked or not, like a message thread (checked ones look checked).
+      // "Unchecked only" narrows it; a nudge you have open stays put until you close it.
+      return chatOrder(chatReminders.filter(r => r.id === expandedId || !showChecked || !isDone(r)));
     }
     const sort = sortSettings[allMessagesFilter];
     if (allMessagesFilter === 'unread') {
@@ -1944,7 +1973,7 @@ export default function App() {
       : realRecipients(r).length === 0 ? 'My Reminders'
       : r.sender === currentUser ? realRecipients(r)[0] : r.sender;
     selectSender(chat);
-    setShowChecked(isDone(r));
+    setShowChecked(false);
     setExpandedId(r.id);
     setOpenMessagesId(target.kind === 'message' ? r.id : null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1954,6 +1983,13 @@ export default function App() {
   useEffect(() => {
     const handleUrl = (url: string) => {
       try {
+        // The Home Screen widget: addly://nudge/<id> opens that nudge, addly://home opens Home
+        if (url.startsWith('addly://')) {
+          const [, what, id] = url.replace('addly://', '/').split('/');
+          if (what === 'nudge' && id) setPendingOpen({ nudgeId: id, kind: 'nudge' });
+          else { setSelectedSender(null); setMobileTab('inbox'); }
+          return;
+        }
         const link = new URL(url);
         const name = link.searchParams.get('u');
         if (link.pathname.replace(/\/$/, '').endsWith('/add') && name) setPendingInvite(name.trim().slice(0, 60));
@@ -2127,6 +2163,21 @@ export default function App() {
     return [...reopenedReminders.filter(r => !laterAt[r.id]), ...now, ...reopenedReminders.filter(r => laterAt[r.id]), ...later];
   })();
   const homeQueue = queuePerson ? fullQueue.filter(r => queueKeyOf(r) === queuePerson) : fullQueue;
+
+  // The Home Screen widget shows the same queue (your whole queue, not one friend's)
+  const widgetKey = fullQueue.slice(0, 6).map(r => r.id + (r.title ?? '')).join('|') + '#' + fullQueue.length;
+  useEffect(() => {
+    if (!currentUser || dataLoading) return;
+    const upNextFirst = [...fullQueue.filter(r => !r.todoItems), ...fullQueue.filter(r => r.todoItems)];
+    syncWidget(upNextFirst.slice(0, 6).map(r => ({
+      id: r.id,
+      title: r.title || r.url || 'Nudge',
+      from: groupKeyFor(r) ? (r.groupName || 'Group') : r.sender === currentUser ? 'you' : r.sender,
+      kind: r.type ? CATEGORY_LABELS[r.type] : undefined,
+      image: r.attachments.find(a => a.type.startsWith('image/'))?.url ?? linkImage(r.url ?? undefined, r.previewImage ?? undefined),
+    })), fullQueue.length);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser, dataLoading, widgetKey]);
 
   // A nudge YOU sent, back on Home because someone wrote on it: seeing that message as
   // Up next counts as reading it. It stays put while you look, then settles back into
@@ -2598,14 +2649,14 @@ export default function App() {
           {selectedSender ? (
             <>
             {showChecked && (
-              <p className="text-xs text-stone-500 text-center mb-2">Checked nudges</p>
+              <p className="text-xs text-stone-500 text-center mb-2">Showing unchecked only</p>
             )}
             <ReminderList
               chatLayout={selectedSender !== 'My Reminders'}
               swipeActionsFor={nudgeSwipeActions}
               mutedIds={mutes}
               newMessageIds={new Set(reopenedReminders.map(r => r.id))}
-              emptyMessage={showChecked ? 'Nothing checked in this chat yet.' : 'All caught up here. Checked nudges are under Checked below.'}
+              emptyMessage={showChecked ? 'All caught up here. Tap "All nudges" to see the checked ones too.' : 'No nudges here yet.'}
               reminders={displayedReminders}
               viewType="received"
               currentUser={currentUser}
@@ -3163,7 +3214,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* Chat buttons, like a message bar: send a new nudge here, or flip to the Checked ones */}
+      {/* Chat buttons, like a message bar: send a new nudge here, or narrow to the unchecked ones */}
       {selectedSender && !typingMessage && (
         <div className="shrink-0 border-t border-stone-200 px-4 py-2.5" style={{ background: '#FBF6EC' }}>
           <div className="max-w-2xl mx-auto flex gap-2">
@@ -3185,16 +3236,13 @@ export default function App() {
                   : 'bg-white border-stone-300 text-stone-700 active:bg-stone-100'
               }`}
             >
-              {/* Looking at the Checked ones? The button takes you back to the Unchecked ones */}
-              {showChecked ? <InboxIcon className="w-4 h-4 shrink-0" /> : <CheckCheck className="w-4 h-4 shrink-0" />}
+              {/* Everything shows by default; this narrows the chat to what's still unchecked */}
+              {showChecked ? <CheckCheck className="w-4 h-4 shrink-0" /> : <InboxIcon className="w-4 h-4 shrink-0" />}
               <span className="text-sm">
                 {showChecked
-                  ? `Unchecked${chatReminders.length - chatCheckedCount > 0 ? ` (${chatReminders.length - chatCheckedCount})` : ''}`
-                  : `Checked${chatCheckedCount > 0 ? ` (${chatCheckedCount})` : ''}`}
+                  ? `All nudges (${chatReminders.length})`
+                  : `Unchecked only${chatReminders.length - chatCheckedCount > 0 ? ` (${chatReminders.length - chatCheckedCount})` : ''}`}
               </span>
-              {chatHasNewInChecked && !showChecked && (
-                <span className="absolute top-1.5 right-2 w-2.5 h-2.5 rounded-full bg-notify" aria-label="New messages" />
-              )}
             </button>
           </div>
         </div>
@@ -3261,6 +3309,7 @@ export default function App() {
       {quickSendTo && (
         <QuickSendModal
           postsAnonymously={!showNamePublicly}
+          onRenameGroup={handleUpdateGroupName}
           recipient={quickSendTo}
           knownRecipients={contacts}
           knownGroups={composeGroups}
@@ -3362,6 +3411,7 @@ export default function App() {
       {quickSendGroup && (
         <QuickSendModal
           postsAnonymously={!showNamePublicly}
+          onRenameGroup={handleUpdateGroupName}
           recipient=""
           initialRecipients={quickSendGroup}
           knownRecipients={contacts}
@@ -3375,6 +3425,7 @@ export default function App() {
       {showNewReminderModal && (
         <QuickSendModal
           postsAnonymously={!showNamePublicly}
+          onRenameGroup={handleUpdateGroupName}
           recipient=""
           knownRecipients={contacts}
           knownGroups={composeGroups}
@@ -3387,6 +3438,7 @@ export default function App() {
       {forwardingReminder && (
         <QuickSendModal
           postsAnonymously={!showNamePublicly}
+          onRenameGroup={handleUpdateGroupName}
           recipient=""
           knownRecipients={contacts}
           knownGroups={composeGroups}

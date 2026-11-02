@@ -9,6 +9,7 @@ import { projectId, publicAnonKey } from './supabase/info';
 interface SharedStorePlugin {
   set(options: { values: Record<string, string | null> }): Promise<void>;
   clear(): Promise<void>;
+  reloadWidgets(): Promise<void>;
 }
 const SharedStore = registerPlugin<SharedStorePlugin>('SharedStore');
 
@@ -49,9 +50,27 @@ export async function syncShareMenu(me: string, contacts: string[], groups: { na
 export async function clearShareMenu() {
   if (!Capacitor.isNativePlatform()) return;
   lastSent = '';
+  lastWidget = '';
   let saved: { key: string } | null = null;
   try { saved = JSON.parse(localStorage.getItem(KEY_STORAGE) || 'null'); localStorage.removeItem(KEY_STORAGE); } catch { /* storage unavailable */ }
   // Only this phone's key (the Chrome add-on keeps its own)
   if (saved?.key) { try { await supabase.rpc('revoke_share_key', { p_key: saved.key }); } catch { /* offline */ } }
   try { await SharedStore.clear(); } catch { /* not available */ }
+}
+
+export interface WidgetNudge { id: string; title: string; from: string; kind?: string; image?: string | null }
+let lastWidget = '';
+
+/** The Home Screen widget: your Up next and what's after it. Only redraws when it changed. */
+export async function syncWidget(nudges: WidgetNudge[], waiting: number) {
+  if (!Capacitor.isNativePlatform()) return;
+  const value = JSON.stringify({ nudges: nudges.slice(0, 6), waiting });
+  if (value === lastWidget) return;
+  try {
+    await SharedStore.set({ values: { widgetQueue: value } });
+    await SharedStore.reloadWidgets();
+    lastWidget = value;
+  } catch (err) {
+    console.warn('Widget not updated', err);
+  }
 }
